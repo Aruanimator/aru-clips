@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aru Clips · Setting up</title>
+<link rel="icon" href="/logo.ico">
+<style>
+  :root{--bg:#141D25;--card:#1E2A35;--line:#2B3A48;--txt:#E8EEF3;--mut:#8A97A3;--acc:#C2F54C;--acc2:#E3F9B5}
+  *{box-sizing:border-box;margin:0}
+  body{min-height:100vh;background:var(--bg);color:var(--txt);font:15px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+    display:grid;place-items:center;padding:24px;
+    background-image:radial-gradient(ellipse 130% 110% at 80% 0%,rgba(194,245,76,.18) 0%,rgba(194,245,76,.135) 18%,rgba(194,245,76,.09) 36%,rgba(194,245,76,.05) 54%,rgba(194,245,76,.022) 70%,rgba(194,245,76,.007) 84%,rgba(194,245,76,0) 100%)}
+  .card{width:min(560px,100%);background:linear-gradient(160deg,#1E2A35 0%,#141D25 100%);border:1px solid var(--line);border-radius:26px;padding:34px 34px 28px;box-shadow:0 40px 120px #000a}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .brand img{width:40px;height:40px;border-radius:11px}
+  .brand b{font-size:18px;letter-spacing:-.01em}
+  .eyebrow{display:inline-block;border:1px solid #C2F54C55;color:var(--acc2);border-radius:99px;padding:3px 11px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:12px}
+  h1{font-size:28px;letter-spacing:-.025em;line-height:1.15;margin-bottom:6px}
+  h1 em{font-style:normal;color:var(--acc2)}
+  .sub{color:var(--mut);margin-bottom:24px}
+  .bar{height:8px;border-radius:99px;background:#2B3A48;overflow:hidden;margin:4px 0 10px}
+  .bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .4s ease}
+  .bar.busy i{width:35%!important;animation:slide 1.3s ease-in-out infinite}
+  @keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+  .detail{color:var(--mut);font-size:13px;min-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:20px}
+  ol{list-style:none;padding:0;display:grid;gap:9px}
+  li{display:flex;align-items:center;gap:11px;color:#6B7884;font-size:14px}
+  li .d{width:20px;height:20px;border-radius:50%;border:1.5px solid #3A4A58;display:grid;place-items:center;flex:none;font-size:11px}
+  li.done{color:var(--mut)} li.done .d{background:var(--acc);border-color:var(--acc);color:#141D25}
+  li.now{color:var(--txt);font-weight:600} li.now .d{border-color:var(--acc2);box-shadow:0 0 0 4px #C2F54C22}
+  li.now .d::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--acc2);animation:pulse 1s ease-in-out infinite alternate}
+  @keyframes pulse{from{opacity:.35}to{opacity:1}}
+  .err{display:none;margin-top:20px;border:1px solid #C2F54C55;background:#C2F54C12;border-radius:16px;padding:14px 16px;font-size:13.5px}
+  .err b{display:block;margin-bottom:4px;color:var(--acc2)}
+  .btns{display:flex;gap:10px;margin-top:12px}
+  button{font:inherit;font-weight:600;border:0;border-radius:99px;padding:9px 18px;cursor:pointer;background:linear-gradient(135deg,#E3F9B5 0%,#C2F54C 100%);color:#141D25}
+  button.g{background:#2B3A48;color:var(--txt)}
+  .foot{margin-top:24px;color:#6B7884;font-size:12px}
+  .quick ol,.quick .sub{display:none}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="brand"><img src="/logo.ico" alt=""><b>Aru Clips</b></div>
+  <div class="eyebrow" id="eb">First-time setup</div>
+  <h1 id="h">Getting Aru Clips <em>ready</em></h1>
+  <p class="sub">This happens once and takes about 5 minutes. Everything stays in its own folder, and the app opens here by itself when it's done.</p>
+  <div class="bar busy" id="bar"><i></i></div>
+  <div class="detail" id="detail">Starting…</div>
+  <ol id="steps"></ol>
+  <div class="err" id="err"><b>Setup stopped</b><span id="emsg"></span>
+    <div class="btns"><button onclick="again()">Try again</button><button class="g" onclick="fetch('/openlog')">Open the log</button></div>
+  </div>
+  <div class="foot">aru_animator</div>
+</div>
+<script>
+let sent = false;
+async function tick() {
+  let s;
+  try { s = await (await fetch('/status', {cache: 'no-store'})).json(); } catch (e) { return; }
+  if (s.url) { document.getElementById('detail').textContent = 'Opening the app…'; location.replace(s.url); return; }
+  const card = document.getElementById('card');
+  if (s.quick) {
+    card.classList.add('quick');
+    document.getElementById('eb').textContent = 'Aru Clips';
+    document.getElementById('h').innerHTML = 'Starting <em>Aru Clips</em>';
+  }
+  document.getElementById('steps').innerHTML = s.steps.map((t, i) =>
+    `<li class="${i < s.step ? 'done' : i === s.step ? 'now' : ''}"><span class="d">${i < s.step ? '✓' : ''}</span>${t}</li>`).join('');
+  const bar = document.getElementById('bar');
+  bar.classList.toggle('busy', !(s.pct >= 0));
+  bar.firstElementChild.style.width = (s.pct >= 0 ? Math.round(s.pct * 100) : 0) + '%';
+  document.getElementById('detail').textContent = s.detail || s.steps[s.step] || '';
+  const e = document.getElementById('err');
+  e.style.display = s.err ? 'block' : 'none';
+  document.getElementById('emsg').textContent = s.err || '';
+}
+function again() { fetch('/retry', {method: 'POST'}); document.getElementById('err').style.display = 'none'; }
+tick(); setInterval(tick, 700);
+</script>
+</body>
+</html>

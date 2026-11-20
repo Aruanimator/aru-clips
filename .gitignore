@@ -1,0 +1,22 @@
+# built and downloaded things (the installer/launcher fetches these on each PC)
+dist/
+runtime/
+venv/
+tools/
+*.zip
+*.exe
+launcher/payload.zip
+launcher/*.syso
+launcher/go.work
+launcher/go.work.sum
+
+# Python
+__pycache__/
+*.pyc
+
+# logs and local data
+setup-log.txt
+app.log
+*.log
+.DS_Store
+Thumbs.db
