@@ -1094,7 +1094,7 @@ def build_sfx(path, dur, groups, sfx, title_on):
 def clip_loudness(src, start, dur, hop=0.05):
     """RMS loudness (dB) of the clip's audio every `hop` seconds."""
     r = run([FFMPEG, "-v", "error"] + media.inopts(src) + ["-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(src),
-             "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"])
+             "-vn", "-af", "aresample=async=1000:first_pts=0", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"])
     x = np.frombuffer(r.stdout or b"", np.int16).astype(np.float32) / 32768
     n = int(16000 * hop)
     if len(x) < n:
@@ -1334,7 +1334,9 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
             cmd += media.inopts(src) + ["-ss", f"{start:.3f}", "-t", f"{src_dur:.3f}", "-i", str(src)]
         else:
             cmd += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-        a_in = "[1:a]aresample=48000,aformat=channel_layouts=stereo"
+        # async + first_pts: gaps in the source audio (stream downloads often have them) become silence by timestamp,
+        # so the sound after a gap doesn't slide earlier than the picture
+        a_in = "[1:a]aresample=48000:async=1000:first_pts=0,aformat=channel_layouts=stereo"
         if plan and info["has_audio"]:
             k = len(plan)
             parts = ";".join(f"[s{q}]atrim={a:.3f}:{b:.3f},asetpts=PTS-STARTPTS,afade=t=in:d=0.01,"

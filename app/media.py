@@ -223,8 +223,9 @@ def ffprobe(path):
 
 
 def extract_audio(src, wav):
-    run([FFMPEG, "-y", "-v", "error"] + inopts(src) + ["-i", str(src), "-vn", "-ac", "1", "-ar", "16000",
-         "-c:a", "pcm_s16le", str(wav)], check=True)
+    # gaps in the audio are filled with silence by timestamp, so transcript times match the video (captions stay in sync)
+    run([FFMPEG, "-y", "-v", "error"] + inopts(src) + ["-i", str(src), "-vn", "-af", "aresample=async=1000:first_pts=0",
+         "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
 
 
 def normalize_part(ts, out):
@@ -241,7 +242,8 @@ def normalize_part(ts, out):
     d = a0 - v0
     af = f"asetpts=PTS-STARTPTS,adelay={int(round(d * 1000))}:all=1" if d > 0 else f"atrim=start={-d:.3f},asetpts=PTS-STARTPTS"
     wav = out.with_name(out.stem + ".a.wav")
-    run([FFMPEG, "-y", "-v", "error"] + inopts(ts) + ["-i", str(ts), "-map", "0:a:0", "-ac", "2", "-ar", "48000", str(wav)], check=True)
+    run([FFMPEG, "-y", "-v", "error"] + inopts(ts) + ["-i", str(ts), "-map", "0:a:0", "-af", "aresample=async=1000",
+         "-ac", "2", "-ar", "48000", str(wav)], check=True)
     run([FFMPEG, "-y", "-v", "error", "-i", str(tmp), "-i", str(wav), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
          "-af", af, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)], check=True)
     tmp.unlink(missing_ok=True); wav.unlink(missing_ok=True)

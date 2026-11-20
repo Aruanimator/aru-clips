@@ -453,7 +453,7 @@ def run_live(j):
         run([FFMPEG, "-y", "-v", "error"] + media.inopts(raw) + ["-copyts", "-ss", f"{rough:.2f}", "-i",
              "concat:" + "|".join(x[0] + ".ts" for x in use),
              "-vf", f"trim=start={abs_a:.3f}:end={abs_b:.3f},setpts=PTS-STARTPTS",
-             "-af", f"atrim=start={abs_a:.3f}:end={abs_b:.3f},asetpts=PTS-STARTPTS",
+             "-af", f"aresample=async=1000,atrim=start={abs_a:.3f}:end={abs_b:.3f},asetpts=PTS-STARTPTS",
              "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-c:a", "aac", "-b:a", "192k",
              str(raw)], cwd=str(ldir))
         if not raw.exists() or raw.stat().st_size < 10000:
