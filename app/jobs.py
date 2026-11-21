@@ -72,6 +72,10 @@ def load_all():
             data = json.loads(jf.read_text("utf-8"))
         except Exception:
             continue
+        for c in data.get("clips", []):  # uploads cut off when the app closed can be published again
+            for st in (c.get("published") or {}).values():
+                if st.get("state") in ("queued", "uploading"):
+                    st.clear(); st.update(state="error", error="Stopped when the app closed. Publish again to retry.")
         if data.get("status") in ("running", "queued") or (data.get("status") == "error" and str(data.get("error", "")).startswith("The app was closed")):
             data["status"] = "paused"; data["error"] = None
             data["stage"] = "Paused because the app was closed. Press Resume to carry on where it stopped."
@@ -872,18 +876,41 @@ def run_live(j):
 
 
 # ======================================================================= publishing
-def publish_clips(j, ns, platforms):
-    """Queues rendered clips for upload. Returns how many were queued."""
+def set_post_text(j, n, meta):
+    """Saves the title, caption and hashtags used when posting this clip."""
+    c = j.clip(int(n))
+    if not c:
+        return
+    tags = meta.get("hashtags", "")
+    if isinstance(tags, str):
+        tags = ["#" + t.lstrip("#") for t in re.split(r"[\s,]+", tags) if t.strip("#")]
+    with j.lock:
+        c["post"] = {"title": str(meta.get("title", "")).strip()[:100], "caption": str(meta.get("caption", "")).strip()[:2200],
+                     "hashtags": tags[:30]}
+        j.save()
+
+
+def publish_clips(j, ns, platforms, why=None):
+    """Queues rendered clips for upload. Returns how many were queued; why (a list) collects reasons for skipped ones."""
     platforms = [p for p in platforms if p in publish.PLATFORMS]
     if not platforms:
         raise ValueError("Pick at least one platform")
     gaming = (j.get("opts") or {}).get("content") == "gaming"
+    why = why if why is not None else []
     k = 0
     for n in ns:
         c = j.clip(int(n))
         if not c or not c.get("file") or c.get("pending"):
+            why.append(f"clip {n} isn't rendered yet")
             continue
-        todo = [p for p in platforms if (c.get("published") or {}).get(p, {}).get("state") not in ("done", "uploading", "queued")]
+        pub = c.get("published") or {}
+        todo = [p for p in platforms if pub.get(p, {}).get("state") not in ("done", "uploading", "queued")]
+        for p in platforms:
+            st = pub.get(p, {}).get("state")
+            if st == "done":
+                why.append(f"clip {n} is already on {publish.NAMES[p]}")
+            elif st in ("uploading", "queued"):
+                why.append(f"clip {n} is already {'uploading' if st == 'uploading' else 'waiting'} for {publish.NAMES[p]}")
         if not todo:
             continue
         with j.lock:
@@ -896,7 +923,9 @@ def publish_clips(j, ns, platforms):
             with j.lock:
                 c.setdefault("published", {})[p] = st
                 j.save()
-        meta = {"title": c.get("title", ""), "caption": c.get("caption", ""), "hashtags": c.get("hashtags") or [], "gaming": gaming}
+        post = c.get("post") or {}  # text edited in the Publish box (the video itself is unchanged)
+        meta = {"title": post.get("title") or c.get("title", ""), "caption": post.get("caption", c.get("caption", "")),
+                "hashtags": post.get("hashtags", c.get("hashtags") or []), "gaming": gaming}
         publish.enqueue({"path": str(output_dir() / c["file"]), "meta": meta, "platforms": todo, "on_update": upd, "log": j.log})
         k += 1
     return k

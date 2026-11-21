@@ -240,6 +240,28 @@ def _ig_me(tok):
 
 
 # ------------------------------------------------------------------ uploads
+class _Reader:
+    """File reader that reports how much has been sent, so the clip card can show a percentage."""
+    def __init__(self, f, size, prog, a=0.0, b=1.0):
+        self.f, self.size, self.prog, self.done, self.a, self.b, self.last = f, max(1, size), prog, 0, a, b, -1
+
+    def read(self, n=-1):
+        d = self.f.read(n if n and n > 0 else 1 << 20)
+        self.done += len(d)
+        pct = int(100 * (self.a + (self.b - self.a) * self.done / self.size))
+        if pct != self.last:
+            self.last = pct
+            self.prog(pct)
+        return d
+
+    def __len__(self):
+        return self.size
+
+
+def _noprog(pct, stage=None):
+    pass
+
+
 def _text(meta, limit):
     tags = " ".join(meta.get("hashtags") or [])
     body = (meta.get("caption") or meta.get("title") or "").strip()
@@ -247,7 +269,7 @@ def _text(meta, limit):
     return t[:limit]
 
 
-def up_youtube(path, meta, log):
+def up_youtube(path, meta, log, prog=_noprog):
     tok = _token("youtube")
     a = acct("youtube")
     title = (meta.get("title") or "Clip")[:95]
@@ -264,14 +286,15 @@ def up_youtube(path, meta, log):
     if r.status_code >= 400:
         raise PublishError("YouTube: " + r.text[:300])
     with open(path, "rb") as f:
-        r2 = requests.put(r.headers["Location"], data=f, timeout=1800, headers={"Content-Type": "video/mp4", "Content-Length": str(size)})
+        r2 = requests.put(r.headers["Location"], data=_Reader(f, size, prog), timeout=1800,
+                          headers={"Content-Type": "video/mp4", "Content-Length": str(size)})
     if r2.status_code >= 400:
         raise PublishError("YouTube upload: " + r2.text[:300])
     vid = r2.json()["id"]
     return f"https://youtube.com/shorts/{vid}"
 
 
-def up_instagram(path, meta, log):
+def up_instagram(path, meta, log, prog=_noprog):
     tok = _token("instagram")
     a = acct("instagram")
     uid = a.get("user_id") or _ig_me(tok)[1]
@@ -285,9 +308,11 @@ def up_instagram(path, meta, log):
     uri = d.get("uri") or f"https://rupload.facebook.com/ig-api-upload/v21.0/{cid}"
     size = path.stat().st_size
     with open(path, "rb") as f:
-        r = requests.post(uri, data=f, timeout=1800, headers={"Authorization": "OAuth " + tok, "offset": "0", "file_size": str(size)})
+        r = requests.post(uri, data=_Reader(f, size, prog), timeout=1800,
+                          headers={"Authorization": "OAuth " + tok, "offset": "0", "file_size": str(size)})
     if r.status_code >= 400:
         raise PublishError("Instagram upload: " + r.text[:300])
+    prog(100, "processing")
     for _ in range(120):  # Instagram processes the video before it can be published
         st = requests.get(f"{host}/{cid}", params={"fields": "status_code,status", "access_token": tok}, timeout=30).json()
         code = st.get("status_code")
@@ -309,7 +334,7 @@ def up_instagram(path, meta, log):
     return link or "https://instagram.com/" + a.get("user", "").lstrip("@")
 
 
-def up_tiktok(path, meta, log):
+def up_tiktok(path, meta, log, prog=_noprog):
     tok = _token("tiktok")
     a = acct("tiktok")
     H = {"Authorization": "Bearer " + tok, "Content-Type": "application/json; charset=UTF-8"}
@@ -338,6 +363,8 @@ def up_tiktok(path, meta, log):
                                                                     "Content-Range": f"bytes {a0}-{a0 + len(part) - 1}/{size}"})
             if r.status_code >= 400:
                 raise PublishError("TikTok upload: " + r.text[:300])
+            prog(int(100 * (a0 + len(part)) / size))
+    prog(100, "processing")
     for _ in range(90):
         st = requests.post("https://open.tiktokapis.com/v2/post/publish/status/fetch/", headers=H, json={"publish_id": pid}, timeout=30).json()
         s = st.get("data", {}).get("status")
@@ -350,7 +377,7 @@ def up_tiktok(path, meta, log):
     return "https://www.tiktok.com/ (still processing)"
 
 
-def up_x(path, meta, log):
+def up_x(path, meta, log, prog=_noprog):
     tok = _token("x")
     H = {"Authorization": "Bearer " + tok}
     size = path.stat().st_size
@@ -372,6 +399,8 @@ def up_x(path, meta, log):
             if r.status_code >= 400:
                 raise PublishError("X upload: " + r.text[:300])
             i += 1
+            prog(int(100 * min(size, i * chunk) / size))
+    prog(100, "processing")
     r = requests.post(f"https://api.x.com/2/media/upload/{mid}/finalize", headers=H, timeout=60)
     info = (r.json() if r.content else {}).get("data", {}).get("processing_info")
     while info and info.get("state") in ("pending", "in_progress"):
@@ -414,9 +443,11 @@ def _work():
             item = _queue.pop(0)
         log = item.get("log") or print
         for p in item["platforms"]:
-            item["on_update"](p, {"state": "uploading"})
+            item["on_update"](p, {"state": "uploading", "pct": 0})
             try:
-                url = UPLOADERS[p](pathlib.Path(item["path"]), item["meta"], log)
+                def prog(pct, stage=None, p=p):
+                    item["on_update"](p, {"state": "uploading", "pct": int(pct), "stage": stage or "uploading"})
+                url = UPLOADERS[p](pathlib.Path(item["path"]), item["meta"], log, prog)
                 item["on_update"](p, {"state": "done", "url": url, "at": int(time.time())})
                 log(f"Published to {NAMES[p]}: {url}")
             except Exception as e:

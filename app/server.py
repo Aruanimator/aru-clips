@@ -544,16 +544,20 @@ def pub_auto(body: dict = Body(...)):
 def pub_clips(jid: str, body: dict = Body(...)):
     j = job_or_404(jid)
     ns = body.get("ns")
+    if body.get("post") and ns and len(ns) == 1:
+        jobs.set_post_text(j, ns[0], body["post"])
     if ns is None:  # everything rendered, optionally above a score
         mn = int(body.get("min_score") or 0)
         ns = [c["n"] for c in j.data.get("clips", []) if c.get("file") and not c.get("pending") and int(c.get("score") or 0) >= mn]
+    why = []
     try:
-        k = jobs.publish_clips(j, ns, body.get("platforms") or [])
+        k = jobs.publish_clips(j, ns, body.get("platforms") or [], why)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not k:
-        raise HTTPException(400, "Nothing new to publish (clips must be rendered, and each goes to a platform once)")
-    return {"queued": k}
+        msg = "; ".join(why[:3]) if why else "no rendered clips match"
+        raise HTTPException(400, "Nothing new to publish: " + msg[0].lower() + msg[1:] + ". Its progress shows under the clip's title.")
+    return {"queued": k, "skipped": why}
 
 
 @app.post("/api/reveal")
