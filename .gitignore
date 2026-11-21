@@ -5,6 +5,7 @@ venv/
 tools/
 *.zip
 *.exe
+!download/AruClips.exe
 launcher/payload.zip
 launcher/*.syso
 launcher/go.work

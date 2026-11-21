@@ -2,6 +2,10 @@
 
 Turns long videos, past streams and live streams into vertical viral clips with captions, face tracking, layouts, effects and sound, all on your Windows PC.
 
+## Download
+
+**[Download AruClips.exe](https://github.com/Aruanimator/aru-clips/raw/main/download/AruClips.exe)** (Windows 10/11). Open it: the first run installs everything it needs and opens the app in your browser.
+
 ## Setup (once)
 
 Works on any 64-bit Windows 10 or 11 PC. No admin rights, and it doesn't matter whether Python is already installed.
