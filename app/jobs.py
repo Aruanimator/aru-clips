@@ -1,5 +1,5 @@
 """Projects: the clipping pipeline, live-stream clipping, re-renders and the Facebook / Instagram export pack."""
-import json, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
+import json, math, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
 import numpy as np
 from config import output_dir, load_settings, slug, FFMPEG, popen, run, UPLOADS
 import ai, media, picker, render, signals, publish, taste
@@ -181,7 +181,7 @@ def restart(j):
             pass
     steps = {"source": True} if not live and (j.get("steps") or {}).get("source") else {}
     with j.lock:
-        for k in ("plan", "live_state", "live", "_last_n", "lang", "_enc_logged"):
+        for k in ("plan", "live_state", "live", "_last_n", "lang", "_enc_logged", "chunked", "chunk_state", "dl"):
             j.data.pop(k, None)
         j.data.update(clips=[], steps=steps, progress=0, error=None, export={}, status="queued", stage="Starting over…")
         j.save()
@@ -243,8 +243,8 @@ def _clip_opts(j, c):
 def _words_for(j, c, edited=True):
     if edited and c.get("words"):  # caption text edited in the clip editor
         return c["words"], j.get("lang", "en")
-    name = (c.get("seg") or "transcript") + ".json"
-    p = j.dir / ("live" if c.get("seg") else "") / name if c.get("seg") else j.dir / name
+    name = (c.get("seg") or c.get("chunk") or "transcript") + ".json"
+    p = j.dir / "live" / name if c.get("seg") else j.dir / "chunks" / name if c.get("chunk") else j.dir / name
     try:
         tr = json.loads(p.read_text("utf-8"))
     except Exception:
@@ -263,6 +263,8 @@ def _words_for(j, c, edited=True):
 
 
 def _src_for(j, c):
+    if c.get("chunk"):
+        return j.dir / "chunks" / (c["chunk"] + ".mp4")
     if c.get("seg"):
         mp4 = j.dir / "live" / (c["seg"] + ".mp4")
         return mp4 if mp4.exists() else j.dir / "live" / (c["seg"] + ".ts")
@@ -327,6 +329,8 @@ def _run_job(j):
         src = dst
         j.set(title=o.get("title") or up.stem)
         j.stage("Video ready", 0.3)
+    elif j.get("chunked") or _go_chunked(j, o):
+        return _run_chunked(j, o, mode)
     else:
         j.stage("Downloading the video…", 0.01)
         src, info = media.download(o["url"], j.dir, j.log, lambda f: (_check(j), j.set(progress=round(0.01 + 0.29 * f, 3))),
@@ -408,6 +412,178 @@ def _run_job(j):
     with j.lock:
         j.data["plan"] = clips; steps["picked"] = True; j.save()
     _render_plan(j, clips)
+
+
+CHUNK = 3600          # long videos are downloaded and clipped an hour at a time
+CHUNK_FROM = 75 * 60  # ...when they're longer than this
+
+
+def _go_chunked(j, o):
+    if not o.get("url") or o.get("file"):
+        return False
+    info = media.probe_url(o["url"])
+    d = float(info.get("duration") or 0)
+    if d < CHUNK_FROM or info.get("kind") == "live":
+        return False
+    with j.lock:
+        j.data["chunked"] = {"total": d}
+        j.save()
+    if info.get("title"):
+        j.set(title=info["title"])
+    j.log(f"This video is {int(d // 3600)}h{int(d % 3600 // 60):02d}m long, so it's downloaded and clipped an hour at a time: "
+          "the first clips come after the first hour is in.")
+    return True
+
+
+def _slice_heat(heat, a, b):
+    out = []
+    for h in heat or []:
+        s0, e0 = float(h.get("start_time", 0)), float(h.get("end_time", 0))
+        if e0 > a and s0 < b:
+            out.append(dict(h, start_time=max(0.0, s0 - a), end_time=min(b, e0) - a))
+    return out or None
+
+
+def _run_chunked(j, o, mode):
+    """Long videos: download hour 1, clip it while hour 2 downloads, and so on."""
+    import queue
+    total = float(j.get("chunked")["total"])
+    cdir = j.dir / "chunks"; cdir.mkdir(exist_ok=True)
+    plan = [(k, k * CHUNK, min(total, (k + 1) * CHUNK)) for k in range(int(math.ceil(total / CHUNK)))]
+    if plan and plan[-1][2] - plan[-1][1] < 300 and len(plan) > 1:  # fold a short tail into the previous hour
+        k, a, _ = plan[-2]; plan = plan[:-2] + [(k, a, total)]
+    state = j.data.setdefault("chunk_state", {})  # name -> "downloaded" | "done"
+    n_want = int(o.get("num_clips", 6))
+    mn, mx = float(o.get("min_len", 20)), float(o.get("max_len", 60))
+    # chat replays and the most-replayed graph cover the whole video; each hour gets its slice
+    extra = {}
+    def side():
+        try:
+            info = media.probe_url(o["url"])
+        except Exception:
+            info = {}
+        if "twitch.tv" in o["url"] and signals.twitch_video_id(o["url"]):
+            extra["chat"] = signals.twitch_replay_chat(o["url"], total, j.log)
+        elif mode == "stream" and "youtu" in o["url"]:
+            media._download_chat(o["url"], j.dir)
+            extra["chat"] = signals.yt_replay_chat(j.dir)
+    side_t = threading.Thread(target=side, daemon=True); side_t.start()
+    heat = None
+    try:
+        import yt_dlp
+        hi = media.ydl_run(lambda y: y.extract_info(o["url"], download=False), {"skip_download": True})
+        heat = hi.get("heatmap")
+    except Exception:
+        pass
+
+    ready = queue.Queue()
+    gen = j._gen = object()  # a Resume starts a new downloader; the old one stops at its next progress update
+
+    def dl_prog(f, k):
+        if j.stop.is_set() or getattr(j, "_gen", None) is not gen:
+            raise Paused()
+        j.set(dl={"k": k, "f": round(f, 3)})
+
+    def downloader():
+        for k, a, b in plan:
+            name = f"ch_{k:03d}"
+            if state.get(name) in ("downloaded", "done") and (cdir / (name + ".mp4")).exists():
+                ready.put((k, a, b)); continue
+            if j.stop.is_set():
+                break
+            try:
+                j.log(f"Downloading hour {k + 1} of {len(plan)} ({_hms(a)}–{_hms(b)})")
+                media.download_section(o["url"], a, b, cdir / (name + ".mp4"), lambda f, k=k: dl_prog(f, k))
+                with j.lock:
+                    state[name] = "downloaded"; j.save()
+                ready.put((k, a, b))
+            except Exception as e:
+                ready.put(e); return
+        ready.put(None)
+    threading.Thread(target=downloader, daemon=True).start()
+
+    base = {"crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
+            "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True),
+            "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence"))}
+    done_n = sum(1 for v in state.values() if v == "done")
+    while True:
+        j.stage(f"Downloading hour {done_n + 1} of {len(plan)}…" if ready.empty() else "Working…",
+                0.02 + 0.96 * done_n / len(plan))
+        while True:
+            _check(j)
+            try:
+                item = ready.get(timeout=1)
+                break
+            except queue.Empty:
+                dl = j.get("dl") or {}
+                if dl:
+                    j.stage(f"Downloading hour {dl['k'] + 1} of {len(plan)}… {int(dl['f'] * 100)}%", 0.02 + 0.96 * done_n / len(plan))
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        k, a, b = item
+        name = f"ch_{k:03d}"
+        if state.get(name) == "done":
+            continue
+        src = cdir / (name + ".mp4")
+        dur = media.ffprobe(src)["duration"] or (b - a)
+        p0 = 0.02 + 0.96 * done_n / len(plan)
+        j.stage(f"Hour {k + 1} of {len(plan)}: transcribing…", p0)
+        wav = cdir / (name + ".wav")
+        trf = cdir / (name + ".json")
+        if trf.exists():
+            tr = json.loads(trf.read_text("utf-8"))
+            if not wav.exists():
+                media.extract_audio(src, wav)
+        else:
+            tr = _transcribe(j, src, wav, dur, o.get("language", "auto"), p0, p0 + 0.4 / len(plan))
+            trf.write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+        j.set(lang=tr["language"])
+        _check(j)
+        loud = media.loudness(wav)
+        wav.unlink(missing_ok=True)
+        side_t.join(timeout=1 if k else 60)  # give the chat replay a head start on the first hour
+        chat = [(t - a, x) for t, x in (extra.get("chat") or []) if a <= t < a + dur]
+        j.stage(f"Hour {k + 1} of {len(plan)}: finding the best moments…", p0 + 0.45 / len(plan))
+        ok = None
+        if o.get("crop_mode") == "split2":
+            try:
+                ok = render.split_timeline(src, dur, j.log)
+            except Exception as e:
+                j.log(f"Couldn't check the streamer's screen time ({str(e)[:120]})")
+        want = max(2, int(round(n_want * dur / total + 0.49)))
+        clips, eng = picker.pick_audience(tr, dur, want * 3 if ok else want, mn, mx, mode, o.get("prompt", ""), chat or None,
+                                          _slice_heat(heat, a, a + dur), loud, j.log, lambda f: None,
+                                          o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o))
+        if ok:
+            clips = _prefer_split(clips, ok, want, mn, j.log)
+            clips = [picker.finish_sentence(c, tr["words"], tr["segments"], mn, mx, dur) for c in clips]
+        j.log(f"Hour {k + 1}: picked {len(clips)} clips" + (f" with {eng}" if eng and eng != "heuristic" else ""))
+        clips.sort(key=lambda c: -c["score"])
+        for i, c in enumerate(clips):
+            _check(j)
+            c.update(base, n=next_n(j), chunk=name, offset=a)
+            j.stage(f"Hour {k + 1} of {len(plan)}: rendering clip {i + 1} of {len(clips)}", p0 + (0.55 + 0.4 * i / max(1, len(clips))) / len(plan))
+            with j.lock:
+                j.data["clips"].append(c)
+            try:
+                render_one(j, c)
+                auto_publish(j, c)
+            except Exception as e:
+                j.log(f"Clip {c['n']} failed: {str(e)[:300]}")
+                with j.lock:
+                    j.data["clips"].remove(c)
+        with j.lock:
+            state[name] = "done"; j.save()
+        done_n += 1
+    n = len([c for c in j.data["clips"] if c.get("file")])
+    j.set(status="done", stage=f"Done! {n} clips saved.", progress=1, dl=None)
+
+
+def _hms(t):
+    t = int(t)
+    return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}"
 
 
 def _render_plan(j, clips):
@@ -1106,9 +1282,9 @@ def _hls_cut(ldir, wa, wb, out):
     return out
 
 
-def _transcribe_range(j, a, b):
+def _transcribe_range(j, a, b, c=None):
     """Words for a stretch of the source video (times in source seconds)."""
-    src = _src_for(j, {})
+    src = _src_for(j, c or {})
     wav = j.dir / f"range_{int(a)}_{int(b)}.wav"
     run([FFMPEG, "-y", "-v", "error", "-ss", f"{a:.2f}", "-t", f"{b - a:.2f}", "-i", str(src), "-vn",
          "-af", "aresample=async=1000:first_pts=0", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
@@ -1143,6 +1319,11 @@ def manual_clip(j, body):
         if b - a < 2:
             raise ValueError("Pick at least 2 seconds")
         c.update(start=round(a, 2), end=round(b, 2), duration=round(b - a, 1))
+        if body.get("chunk"):  # long video, clipped an hour at a time: times are inside that hour
+            ch = re.sub(r"[^\w]", "", str(body["chunk"]))
+            if not (j.dir / "chunks" / (ch + ".mp4")).exists():
+                raise ValueError("That hour isn't downloaded yet")
+            c.update(chunk=ch, offset=int(ch.split("_")[-1]) * CHUNK)
     with j.lock:
         j.data["clips"].append(c); j.save()
 
@@ -1170,18 +1351,19 @@ def _manual_run(j, c):
             words = tr.get("words", [])
         else:
             # marked while the video was still downloading: wait for the download only (not the whole transcript)
-            while not (j.get("steps") or {}).get("source"):
+            while not c.get("chunk") and not (j.get("steps") or {}).get("source"):
                 if j.get("status") in ("error", "done") or JOBS.get(j.id) is None:
                     raise RuntimeError("the video didn't finish downloading")
                 with j.lock:
                     c["stage"] = "Waiting for the download to finish"
                 time.sleep(3)
-            if (j.dir / "transcript.json").exists():
+            trf = j.dir / "chunks" / (c["chunk"] + ".json") if c.get("chunk") else j.dir / "transcript.json"
+            if trf.exists():
                 words, _ = _words_for(j, c)
             else:  # the full transcript isn't done yet: transcribe just this clip
                 with j.lock:
                     c["stage"] = "Transcribing your clip"
-                words = _transcribe_range(j, c["start"], c["end"])
+                words = _transcribe_range(j, c["start"], c["end"], c)
                 with j.lock:
                     c["words"] = words  # its captions
             c.pop("stage", None)

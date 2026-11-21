@@ -377,7 +377,7 @@ def restart_job(jid: str):
 def player(jid: str):
     j = job_or_404(jid)
     o = j.get("opts") or {}
-    clips = [{"n": c["n"], "start": c["start"], "end": c["end"], "seg": c.get("seg"), "title": c.get("title", ""),
+    clips = [{"n": c["n"], "start": c["start"], "end": c["end"], "seg": c.get("seg"), "chunk": c.get("chunk"), "title": c.get("title", ""),
               "pending": bool(c.get("pending")), "manual": bool(c.get("manual"))} for c in j.data.get("clips", [])]
     busy = j.get("status") in ("running", "queued")
     if o.get("source_type") == "live":
@@ -388,6 +388,13 @@ def player(jid: str):
             "Press Start over, or start a new live project, to watch the stream in the app.")
         return {"kind": "live", "url": f"/media/{j.id}/live/hls/live.m3u8" if pl.exists() else "", "why": why,
                 "window": jobs.live_window(j), "recording": bool((j.get("live") or {}).get("recording")), "clips": clips}
+    if j.get("chunked"):  # long video: each downloaded hour plays on its own
+        st = j.get("chunk_state") or {}
+        hrs = [{"name": n, "start": int(n.split("_")[-1]) * jobs.CHUNK, "url": f"/media/{j.id}/chunks/{n}.mp4"}
+               for n in sorted(st) if st[n] in ("downloaded", "done") and (j.dir / "chunks" / (n + ".mp4")).exists()]
+        if hrs:
+            return {"kind": "chunks", "url": "chunks:" + ",".join(h["name"] for h in hrs), "hours": hrs, "clips": clips, "why": "",
+                    "note": "Long video: each hour plays as soon as it has downloaded. Drag on the bar to pick a moment, then Clip it."}
     src = jobs._src_for(j, {})
     ok = bool(src and src.exists() and ((j.get("steps") or {}).get("source") or j.get("status") == "done"))
     emb = None if ok else _embed(o.get("url") or "")
@@ -395,7 +402,8 @@ def player(jid: str):
         return {"kind": "embed", "url": "embed:" + emb["site"] + ":" + emb["id"], "embed": emb, "clips": clips,
                 "why": "", "note": "Playing from " + ("YouTube" if emb["site"] == "youtube" else "Twitch")
                 + " while it downloads. Moments you mark are clipped as soon as the download finishes."}
-    why = "" if ok else ("The video shows up here once it has downloaded." if busy or j.get("status") == "paused"
+    why = "" if ok else ("The first hour shows up here as soon as it has downloaded." if j.get("chunked") else
+                         "The video shows up here once it has downloaded." if busy or j.get("status") == "paused"
                          else "The source video isn't in this project any more.")
     return {"kind": "video", "url": f"/media/{j.id}/{src.name}" if ok else "", "why": why, "clips": clips}
 

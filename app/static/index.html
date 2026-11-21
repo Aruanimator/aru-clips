@@ -622,6 +622,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .pvwhy{padding:14px 16px;border-radius:12px;background:#141D25;border:1px dashed var(--line);color:var(--mute);font-size:13px;line-height:1.5}
 .pvembed{width:100%;aspect-ratio:16/9;max-height:60vh;background:#000}
 .pvembed>div,.pvembed iframe{width:100%;height:100%;border:0;display:block}
+.pvhours{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px;color:var(--mute)}
+.pvhours small{margin-left:6px}
 </style>
 </head>
 <body>
@@ -869,6 +871,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         <button class="btn sm" id="pvToggle" onclick="togglePlayer()">Hide</button></div>
       <div class="pvwhy" id="pvWhy" style="display:none"></div>
       <div id="pvBody">
+        <div class="pvhours" id="pvHours" style="display:none"></div>
         <div class="pwrap"><video id="pv" playsinline controls></video><div id="pvEmbed" class="pvembed" style="display:none"><div id="pvEmbedIn"></div></div><div class="pvlive" id="pvLive" style="display:none">● LIVE</div></div>
         <div class="mbar" id="mBar" title="Drag to select a moment, click to jump"><div class="mclips" id="mClips"></div><div class="msel" id="mSel"><i class="h l"></i><i class="h r"></i></div><div class="mhead" id="mHead"></div></div>
         <div class="mtimes"><span id="mT0"></span><span id="mTsel"></span><span id="mT1"></span></div>
@@ -2071,6 +2074,12 @@ async function pvUpdate(j){
   $('#mQuick').style.display=p.kind==='live'&&p.recording?'':'none';
   $('#pvNote').textContent=p.note?p.note:p.kind==='live'?'Drag on the bar to pick a moment (or press I and O), then Clip it. Auto clipping keeps running.':'Drag on the bar to pick a moment (or press I and O), then Clip it.';
 }
+let pvHourSel={};
+function pvPickHour(name,t){const h=pvS.hours.find(x=>x.name===name);if(!h)return;pvHourSel[pvS.jid]=name;
+  pvS.chunk=name;pvS.offset=h.start;pvS.sel=null;pvS._csig=null;const v=$('#pv');v.src=h.url;
+  if(t)v.addEventListener('loadedmetadata',()=>{v.currentTime=t},{once:true});
+  $('#pvHours').style.display='';$('#pvHours').innerHTML='<span>Hour</span>'+pvS.hours.map((x,i)=>`<button class="btn sm ${x.name===name?'pri':''}" onclick="pvPickHour('${x.name}')">${i+1}</button>`).join('')
+    +(pvS.hours.length?`<small>${pvS.hours.length} downloaded so far</small>`:'')}
 function pvCur(){if(pvS&&pvS.api)return pvS.api.cur();return $('#pv').currentTime||0}
 function pvSeek(t){if(pvS&&pvS.api)return pvS.api.seek(t);$('#pv').currentTime=t}
 function loadScript(src){return new Promise((ok,no)=>{if(document.querySelector(`script[src="${src}"]`))return ok();const sc=document.createElement('script');sc.src=src;sc.onload=ok;sc.onerror=no;document.head.appendChild(sc)})}
@@ -2096,6 +2105,9 @@ function pvLoad(jid,p){
   const v=$('#pv');pvS={jid,kind:p.kind,url:p.url,sel:null,hls:null,clips:[],api:null};
   $('#pvEmbed').style.display='none';$('#pvEmbedIn').innerHTML='';v.style.display='';
   if(p.kind==='embed'){pvEmbed(p);if(!pvS.ticking){pvS.ticking=true;pvTick()}return}
+  $('#pvHours').style.display='none';
+  if(p.kind==='chunks'){pvS.hours=p.hours;const keep=pvHourSel[jid];const h=p.hours.find(x=>x.name===keep)||p.hours[0];
+    pvPickHour(h.name,keepT&&keep===h.name?keepT:0);if(!pvS.ticking){pvS.ticking=true;pvTick()}return}
   if(keepT&&p.kind==='video')v.addEventListener('loadedmetadata',()=>{v.currentTime=keepT},{once:true});
   if(p.kind==='live'){
     if(window.Hls&&Hls.isSupported()){const h=new Hls({maxBufferLength:20,backBufferLength:60});h.loadSource(p.url);h.attachMedia(v);pvS.hls=h;
@@ -2112,12 +2124,12 @@ function pvRange(){const v=$('#pv');if(!pvS)return[0,0];
 function pvWall(t){const v=$('#pv'),h=pvS&&pvS.hls,d=h&&h.playingDate;
   if(d)return d.getTime()/1000+(t-v.currentTime);
   const[a,b]=pvRange();return((pvS.window&&pvS.window.to)||Date.now()/1000)-(b-t)}
-function pvTime(t){if(pvS.kind!=='live')return fmt(t);const d=new Date(pvWall(t)*1000);return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function pvTime(t){if(pvS.kind!=='live')return fmt(t+(pvS.offset||0));const d=new Date(pvWall(t)*1000);return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
 function pvTick(){if(!pvS)return;requestAnimationFrame(pvTick);if(pvHidden||$('#playerCard').style.display==='none')return;
   const now=performance.now();if(pvS._t&&now-pvS._t<120)return;pvS._t=now;pvDraw()}
 function pvDraw(){const v=$('#pv'),[a,b]=pvRange(),span=Math.max(0.01,b-a),X=t=>Math.min(100,Math.max(0,(t-a)/span*100));
   $('#mHead').style.left=X(pvCur())+'%';$('#mT0').textContent=b?pvTime(a):'';$('#mT1').textContent=b?pvTime(b):'';
-  const cl=pvS.kind==='live'?[]:(pvS.clips||[]).filter(c=>!c.seg);
+  const cl=pvS.kind==='live'?[]:(pvS.clips||[]).filter(c=>pvS.kind==='chunks'?c.chunk===pvS.chunk:!c.seg&&!c.chunk);
   const sig=JSON.stringify([a|0,b|0,cl.map(c=>[c.n,c.start,c.end,c.pending])]);
   if(sig!==pvS._csig){pvS._csig=sig;$('#mClips').innerHTML=cl.map(c=>`<i class="${c.pending?'pend':''}" style="left:${X(c.start)}%;width:${Math.max(.3,X(c.end)-X(c.start))}%" title="Clip ${c.n}: ${esc(c.title)}"></i>`).join('')}
   const s=pvS.sel,m=$('#mSel');
@@ -2142,7 +2154,7 @@ async function sendManual(body){try{await api(`/api/jobs/${current}/manual`,{met
     toast('Clipping your moment. It shows up below in a minute.');clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}catch(e){toast(e.message)}}
 function clipSel(){const s=pvS&&pvS.sel;if(!s||s[1]-s[0]<2)return toast('Pick at least 2 seconds');
   if(s[1]-s[0]>180&&!confirm(`That's ${Math.round(s[1]-s[0])} seconds. Clip it anyway?`))return;
-  sendManual(pvS.kind==='live'?{wall_start:pvWall(s[0]),wall_end:pvWall(s[1])}:{start:s[0],end:s[1]});pvS.sel=null;pvDraw()}
+  sendManual(pvS.kind==='live'?{wall_start:pvWall(s[0]),wall_end:pvWall(s[1])}:pvS.kind==='chunks'?{start:s[0],end:s[1],chunk:pvS.chunk}:{start:s[0],end:s[1]});pvS.sel=null;pvDraw()}
 function clipLast(sec){const end=Date.now()/1000;sendManual({wall_start:end-sec,wall_end:end})}
 
 // ======================================================================= ratings + publishing on clips

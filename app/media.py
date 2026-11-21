@@ -188,6 +188,36 @@ def download(url, dest_dir, log, progress, want_chat=False):
     return path, info
 
 
+def download_section(url, a, b, out, progress=lambda f: None):
+    """Downloads only a..b seconds of a video to out (.mp4). Used to clip long videos an hour at a time."""
+    import yt_dlp
+    from yt_dlp.utils import download_range_func
+    out = pathlib.Path(out)
+    stem = out.with_suffix("")
+
+    def hook(d):
+        if d.get("status") == "downloading":
+            tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            if tot:
+                progress(min(1, d.get("downloaded_bytes", 0) / tot))
+            elif d.get("elapsed") and b > a:  # ffmpeg-based range downloads only report time
+                progress(min(0.99, float(d.get("elapsed", 0)) / max(30.0, (b - a) / 8)))
+    opts = _ydl_opts({
+        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
+        "merge_output_format": "mp4", "outtmpl": str(stem) + ".%(ext)s", "progress_hooks": [hook],
+        "download_ranges": download_range_func(None, [(float(a), float(b))]), "force_keyframes_at_cuts": False,
+        "retries": 5, "fragment_retries": 10, "concurrent_fragment_downloads": 4,
+    })
+    ydl_run(lambda y: y.extract_info(url, download=True), {k: v for k, v in opts.items() if k not in ("cookiesfrombrowser",)})
+    got = next((p for p in out.parent.glob(stem.name + ".*") if p.suffix in (".mp4", ".mkv", ".webm", ".mov")
+                and not re.search(r"\.f\d+\.", p.name)), None)
+    if not got:
+        raise RuntimeError("This part of the video didn't download")
+    if got != out:
+        os.replace(got, out)
+    return out
+
+
 def _download_chat(url, dest_dir):
     import yt_dlp
     try:
