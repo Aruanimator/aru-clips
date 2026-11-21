@@ -1266,7 +1266,7 @@ async function refresh(force){
   const eb=$('#exportBtn');eb.style.display=nDone?'':'none';
   eb.disabled=ex.state==='running';eb.textContent=ex.state==='running'?`Writing captions ${ex.done||0}/${ex.total||'…'}…`:ex.state==='done'?'Export again':'Facebook / Instagram pack';
   if(ex.state==='done'&&ex.path!==shownExport){shownExport=ex.path;toast(`Pack ready: ${ex.count} clips with captions`+(ex.warnings&&ex.warnings.length?`. ${ex.warnings[0]}`:''));}
-  const sig=JSON.stringify(j.clips.map(c=>[c.n,c.rendered_at,c.rendering,c.pending,c.stars]));
+  const sig=JSON.stringify(j.clips.map(c=>[c.n,c.rendered_at,c.rendering,c.pending,c.stars,c.stage]));
   if(force||sig!==lastSig){lastSig=sig;renderClips(j)}
   pubUpdate(j.clips);
   const uploading=j.clips.some(c=>Object.values(c.published||{}).some(p=>p.state==='queued'||p.state==='uploading'));
@@ -1283,11 +1283,11 @@ function renderClips(j){
     const pick=(c.picked_by||bd)?`<div class="pickby">${c.picked_by?`<span>Picked by ${esc(c.picked_by)}</span>`:''}${bd}</div>`:'';
     if(c.pending||(c.rendering&&!c.file))return `<div class="clip pend${selClips.has(c.n)?' sel':''}" data-n="${c.n}">
       <div class="vid"><img src="${c.thumb}" alt="">${chk}<div class="score ${cls}">${c.score}</div><div class="dur">${c.duration}s</div>
-        ${c.rendering?'<div class="busy"><div class="spin"></div>Rendering…</div>':''}</div>
+        ${c.rendering?`<div class="busy"><div class="spin"></div>${esc(c.stage||'Rendering…')}</div>`:''}</div>
       <div class="cbody"><h3>${esc(c.title)}</h3><div class="why">${esc(c.reason)}</div>${pick}
         <div style="font-size:11.5px;color:var(--mute)">${fmt(c.start+(c.offset||0))} to ${fmt(c.end+(c.offset||0))} into the stream</div>
-        <div class="acts"><button class="btn pri" onclick="approveClip(${c.n})" ${c.rendering?'disabled':''}>Render this</button>
-          <button class="btn" onclick="rejectClip(${c.n})" ${c.rendering?'disabled':''}>Skip</button></div></div></div>`;
+        <div class="acts">${c.manual?`<button class="btn" onclick="rejectClip(${c.n})">Cancel</button>`:`<button class="btn pri" onclick="approveClip(${c.n})" ${c.rendering?'disabled':''}>Render this</button>
+          <button class="btn" onclick="rejectClip(${c.n})" ${c.rendering?'disabled':''}>Skip</button>`}</div></div></div>`;
     return `<div class="clip${selClips.has(c.n)?' sel':''}" data-n="${c.n}">
       <div class="vid"><video src="/media/${encodeURI(c.file)}?v=${c.rendered_at}" poster="${c.thumb}" controls preload="none" playsinline></video>${chk}
         <div class="score ${cls}">${c.score>=85?'':''}${c.score}</div><div class="dur">${c.duration}s</div>

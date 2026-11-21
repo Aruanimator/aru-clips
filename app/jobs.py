@@ -81,7 +81,11 @@ def load_all():
             data["stage"] = "Paused because the app was closed. Press Resume to carry on where it stopped."
         for c in data.get("clips", []):
             c.pop("rendering", None)
-        JOBS[jid] = Job(jid, jf.parent, data)
+        j = JOBS[jid] = Job(jid, jf.parent, data)
+        for c in data.get("clips", []):  # moments you marked that didn't finish before the app closed
+            if c.get("manual") and not c.get("file") and (c.get("wall") or data.get("opts", {}).get("source_type") != "live"):
+                c["rendering"] = True
+                threading.Thread(target=_manual_run, args=(j, c), daemon=True).start()
 
 
 def get(jid):
@@ -1102,6 +1106,19 @@ def _hls_cut(ldir, wa, wb, out):
     return out
 
 
+def _transcribe_range(j, a, b):
+    """Words for a stretch of the source video (times in source seconds)."""
+    src = _src_for(j, {})
+    wav = j.dir / f"range_{int(a)}_{int(b)}.wav"
+    run([FFMPEG, "-y", "-v", "error", "-ss", f"{a:.2f}", "-t", f"{b - a:.2f}", "-i", str(src), "-vn",
+         "-af", "aresample=async=1000:first_pts=0", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
+    try:
+        tr = ai.transcribe(wav, b - a, (j.get("opts") or {}).get("language", "auto"), j.log)
+    finally:
+        wav.unlink(missing_ok=True)
+    return [dict(w, s=round(w["s"] + a, 3), e=round(w["e"] + a, 3)) for w in tr.get("words", [])]
+
+
 def live_window(j):
     """Wall-clock range the live player can clip from, for the UI."""
     idx = _hls_index(j.dir / "live")
@@ -1120,6 +1137,7 @@ def manual_clip(j, body):
          "title": "Your clip", "score": 0, "caption": "", "hashtags": [], "rendering": True, "start": 0, "end": 1}
     if live:
         wa, wb = float(body["wall_start"]), float(body["wall_end"])
+        c["wall"] = [wa, wb]
     else:
         a, b = float(body["start"]), float(body["end"])
         if b - a < 2:
@@ -1128,45 +1146,58 @@ def manual_clip(j, body):
     with j.lock:
         j.data["clips"].append(c); j.save()
 
-    def work():
-        try:
-            if live:
-                ldir = j.dir / "live"
-                name = f"manual_{n:03d}"
-                p = _hls_cut(ldir, wa, wb, ldir / (name + ".mp4"))
-                d = media.ffprobe(p)["duration"]
-                wav = ldir / (name + ".wav")
-                media.extract_audio(p, wav)
-                tr = ai.transcribe(wav, d, o.get("language", "auto"), j.log)
-                wav.unlink(missing_ok=True)
-                (ldir / (name + ".json")).write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
-                c.update(seg=name, start=0.0, end=round(d, 2), duration=round(d, 1))
-                words = tr.get("words", [])
-            else:
-                # marked while the video was still downloading: wait for it
-                while not (j.get("steps") or {}).get("transcript"):
-                    if j.get("status") in ("error", "done") or JOBS.get(j.id) is None:
-                        raise RuntimeError("the video didn't finish downloading")
-                    with j.lock:
-                        c["stage"] = "Waiting for the download to finish"
-                    time.sleep(3)
-                c.pop("stage", None)
-                words, _ = _words_for(j, c)
-            text = " ".join(w["w"] for w in words if c["start"] - 0.2 <= w["s"] <= c["end"])
-            c.update(picker.describe(text, j.get("lang", "en"), o.get("content", "general"), o.get("game", "any"), j.log))
-            c["picked_by"] = "you (marked in the player)"
-            j.log(f"Rendering your clip {n}: {c['title'][:60]}")
-            render_one(j, c)
-            auto_publish(j, c)
-        except Exception as e:
-            j.log(f"Your clip {n} failed: {str(e)[:250]}")
-            with j.lock:
-                j.data["clips"] = [x for x in j.data["clips"] if x is not c]
-        finally:
-            with j.lock:
-                c.pop("rendering", None); j.save()
-    threading.Thread(target=work, daemon=True).start()
+    threading.Thread(target=_manual_run, args=(j, c), daemon=True).start()
     return n
+
+
+def _manual_run(j, c):
+    """Cuts, titles and renders a moment the user marked. Started again on launch if the app closed midway."""
+    o = j.get("opts") or {}
+    live = o.get("source_type") == "live"
+    n = c["n"]
+    try:
+        if live:
+            ldir = j.dir / "live"
+            name = f"manual_{n:03d}"
+            p = _hls_cut(ldir, c["wall"][0], c["wall"][1], ldir / (name + ".mp4"))
+            d = media.ffprobe(p)["duration"]
+            wav = ldir / (name + ".wav")
+            media.extract_audio(p, wav)
+            tr = ai.transcribe(wav, d, o.get("language", "auto"), j.log)
+            wav.unlink(missing_ok=True)
+            (ldir / (name + ".json")).write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+            c.update(seg=name, start=0.0, end=round(d, 2), duration=round(d, 1))
+            words = tr.get("words", [])
+        else:
+            # marked while the video was still downloading: wait for the download only (not the whole transcript)
+            while not (j.get("steps") or {}).get("source"):
+                if j.get("status") in ("error", "done") or JOBS.get(j.id) is None:
+                    raise RuntimeError("the video didn't finish downloading")
+                with j.lock:
+                    c["stage"] = "Waiting for the download to finish"
+                time.sleep(3)
+            if (j.dir / "transcript.json").exists():
+                words, _ = _words_for(j, c)
+            else:  # the full transcript isn't done yet: transcribe just this clip
+                with j.lock:
+                    c["stage"] = "Transcribing your clip"
+                words = _transcribe_range(j, c["start"], c["end"])
+                with j.lock:
+                    c["words"] = words  # its captions
+            c.pop("stage", None)
+        text = " ".join(w["w"] for w in words if c["start"] - 0.2 <= w["s"] <= c["end"])
+        c.update(picker.describe(text, j.get("lang", "en"), o.get("content", "general"), o.get("game", "any"), j.log))
+        c["picked_by"] = "you (marked in the player)"
+        j.log(f"Rendering your clip {n}: {c['title'][:60]}")
+        render_one(j, c)
+        auto_publish(j, c)
+    except Exception as e:
+        j.log(f"Your clip {n} failed: {str(e)[:250]}")
+        with j.lock:
+            j.data["clips"] = [x for x in j.data["clips"] if x is not c]
+    finally:
+        with j.lock:
+            c.pop("rendering", None); j.save()
 
 
 # ======================================================================= actions
