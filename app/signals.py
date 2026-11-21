@@ -13,7 +13,8 @@ HYPE_RE = re.compile(
 CLIP_RE = re.compile(r"\b(clip+ (it|that|this)|clipped|\+?clip\b|clip!)", re.I)
 # messages that say nothing about the stream: bots, ads, raids, links (idea from gtavi-claudecode, MIT)
 NOISE_RE = re.compile(r"giveaway|\braid(ing|ed)?\b|\bbrb\b|be right back|ad break|sponsor|subscribe|discord\.gg|https?://|"
-                      r"promo code|follow me|\bsub(scribed)? (for|with)|gifted|!\w+$", re.I)
+                      r"promo code|follow me|\bsub(scribed)? (for|with)|gifted|!\w+$|raiders?\b|hype ?train|\bcheer\d+|\bbits\b|"
+                      r"welcome (in|to)|first time chat", re.I)
 STOPWORDS = set("the a an and or to of is it in i you that this on for with was are be so but not my me we he she they "
                 "what just like at as if do get its im".split())
 

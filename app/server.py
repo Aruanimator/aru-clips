@@ -11,7 +11,9 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from config import (APP, ASSETS, DATA, UPLOADS, USER_FONTS, USER_SFX, FILLERS, FFMPEG, IS_WIN, load_settings, save_settings,
                     output_dir, run, slug)
-import ai, media, jobs
+import ai, media, jobs, publish, taste, watch
+from render import WATERMARKS
+WATERMARKS.mkdir(parents=True, exist_ok=True)
 
 PORT = int(os.environ.get("ARU_PORT", "8765"))
 app = FastAPI(title="Aru Clips")
@@ -76,6 +78,8 @@ def media_file(path: str):
     p = within(output_dir(), path)
     if not p.is_file():
         raise HTTPException(404)
+    if p.suffix == ".m3u8":  # the live player's playlist changes every few seconds
+        return FileResponse(p, media_type="application/vnd.apple.mpegurl", headers={"Cache-Control": "no-store"})
     return FileResponse(p)
 
 
@@ -130,7 +134,7 @@ def get_settings():
 def post_settings(body: dict = Body(...)):
     allowed = {"engine", "groq_api_key", "groq_llm_model", "groq_whisper_model", "ollama_model", "ollama_url", "output_dir",
                "cookies_browser", "local_whisper_model", "groq_extra_keys", "gemini_api_key", "gemini_model", "video_encoder",
-               "backup_ai", "backup_key", "backup_model"}
+               "backup_ai", "backup_key", "backup_model", "learn_taste"}
     patch = {k: v for k, v in body.items() if k in allowed}
     for k in ("groq_api_key", "gemini_api_key", "backup_key"):
         if str(patch.get(k, "")).startswith("••"):
@@ -318,6 +322,228 @@ def export(jid: str, body: dict = Body(default={})):
 @app.post("/api/jobs/{jid}/clips/delete")
 def delete_clips(jid: str, body: dict = Body(...)):
     return {"deleted": jobs.delete_clips(job_or_404(jid), body.get("ns") or [])}
+
+
+# ---- project lifecycle
+@app.delete("/api/jobs/{jid}")
+def delete_job(jid: str):
+    job_or_404(jid)
+    threading.Thread(target=jobs.delete, args=(jid,), daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/jobs/clear")
+def clear_jobs(body: dict = Body(default={})):
+    """Deletes several projects: the ids given, or every project that isn't running."""
+    ids = body.get("ids") or [x["id"] for x in jobs.listing() if x["status"] not in ("running", "queued")]
+    for jid in ids:
+        threading.Thread(target=jobs.delete, args=(jid,), daemon=True).start()
+    return {"deleted": len(ids)}
+
+
+@app.post("/api/jobs/{jid}/pause")
+def pause_job(jid: str):
+    if not jobs.pause(job_or_404(jid)):
+        raise HTTPException(400, "This project isn't running")
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{jid}/resume")
+def resume_job(jid: str):
+    if not jobs.resume(job_or_404(jid)):
+        raise HTTPException(400, "This project can't be resumed right now")
+    return {"ok": True}
+
+
+@app.post("/api/jobs/{jid}/restart")
+def restart_job(jid: str):
+    j = job_or_404(jid)
+    threading.Thread(target=jobs.restart, args=(j,), daemon=True).start()
+    return {"ok": True}
+
+
+# ---- in-app player and manual clips
+@app.get("/api/jobs/{jid}/player")
+def player(jid: str):
+    j = job_or_404(jid)
+    o = j.get("opts") or {}
+    clips = [{"n": c["n"], "start": c["start"], "end": c["end"], "seg": c.get("seg"), "title": c.get("title", ""),
+              "pending": bool(c.get("pending")), "manual": bool(c.get("manual"))} for c in j.data.get("clips", [])]
+    if o.get("source_type") == "live":
+        pl = j.dir / "live" / "hls" / "live.m3u8"
+        return {"kind": "live", "url": f"/media/{j.id}/live/hls/live.m3u8" if pl.exists() else "",
+                "window": jobs.live_window(j), "recording": bool((j.get("live") or {}).get("recording")), "clips": clips}
+    src = jobs._src_for(j, {})
+    ok = src and src.exists() and (j.get("steps") or {}).get("source") or (src and j.get("status") == "done")
+    return {"kind": "video", "url": f"/media/{j.id}/{src.name}" if ok else "", "clips": clips}
+
+
+@app.post("/api/jobs/{jid}/manual")
+def manual(jid: str, body: dict = Body(...)):
+    try:
+        return {"n": jobs.manual_clip(job_or_404(jid), body)}
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(400, str(e) or "Mark a start and an end first")
+
+
+# ---- ratings
+@app.post("/api/jobs/{jid}/clips/{n}/rate")
+def rate(jid: str, n: int, body: dict = Body(...)):
+    try:
+        return jobs.rate(job_or_404(jid), n, body.get("stars", 0))
+    except KeyError:
+        raise HTTPException(404, "Clip not found")
+
+
+@app.get("/api/taste")
+def taste_info():
+    return taste.summary()
+
+
+@app.post("/api/taste/reset")
+def taste_reset():
+    taste.reset()
+    return taste.summary()
+
+
+@app.get("/api/board")
+def board():
+    return jobs.board()
+
+
+# ---- streamer watchlist
+@app.get("/api/watch")
+def watch_list():
+    return watch.items()
+
+
+@app.post("/api/watch")
+def watch_add(body: dict = Body(...)):
+    if not str(body.get("target", "")).strip():
+        raise HTTPException(400, "Paste a streamer's link or name")
+    try:
+        return watch.add(body["target"], body.get("opts") or {}, body.get("name", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/watch/{iid}")
+def watch_edit(iid: str, body: dict = Body(...)):
+    watch.edit(iid, **body)
+    return {"ok": True}
+
+
+@app.delete("/api/watch/{iid}")
+def watch_del(iid: str):
+    watch.remove(iid)
+    return {"ok": True}
+
+
+# ---- custom watermarks
+@app.get("/api/watermarks")
+def wm_list():
+    return [p.name for p in sorted(WATERMARKS.glob("*")) if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
+
+
+@app.post("/api/watermarks")
+async def wm_add(file: UploadFile = File(...)):
+    name = safe_name(file.filename)
+    if pathlib.Path(name).suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(400, "Use a PNG (transparent works best), JPG or WEBP image")
+    (WATERMARKS / name).write_bytes(await file.read())
+    return {"name": name}
+
+
+@app.get("/wmfile/{name}")
+def wm_file(name: str):
+    p = WATERMARKS / safe_name(name)
+    if not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p)
+
+
+@app.delete("/api/watermarks/{name}")
+def wm_del(name: str):
+    (WATERMARKS / safe_name(name)).unlink(missing_ok=True)
+    return {"ok": True}
+
+
+# ---- publishing
+@app.get("/api/publish")
+def pub_info(request: Request):
+    return dict(publish.public(), redirect=str(request.base_url).rstrip("/") + "/oauth/callback")
+
+
+@app.post("/api/publish/{platform}/app")
+def pub_app(platform: str, body: dict = Body(...)):
+    if platform not in publish.PLATFORMS:
+        raise HTTPException(404)
+    kw = {k: str(body[k]).strip() for k in ("client_id", "client_secret", "privacy") if body.get(k) is not None}
+    if str(kw.get("client_secret", "")).startswith("••") or kw.get("client_secret") == "":
+        kw.pop("client_secret", None)
+    publish.update(platform, **kw)
+    return publish.public()[platform]
+
+
+@app.post("/api/publish/{platform}/connect")
+def pub_connect(platform: str, request: Request):
+    try:
+        url = publish.auth_url(platform, str(request.base_url).rstrip("/") + "/oauth/callback")
+    except publish.PublishError as e:
+        raise HTTPException(400, str(e))
+    return {"url": url}
+
+
+@app.get("/oauth/callback", response_class=HTMLResponse)
+def oauth_cb(state: str = "", code: str = "", error: str = "", error_description: str = ""):
+    def page(msg, ok):
+        col = "#C2F54C" if ok else "#ff7a7a"
+        return HTMLResponse(f"<html><body style='background:#141D25;color:#E8EEF3;font-family:system-ui;display:grid;place-items:center;"
+                            f"height:100vh;margin:0'><div style='text-align:center'><h2 style='color:{col}'>{msg}</h2>"
+                            "<p>You can close this tab and go back to Aru Clips.</p></div></body></html>")
+    if error or not code:
+        return page("Sign-in was cancelled: " + (error_description or error or "no code"), False)
+    try:
+        p = publish.finish_auth(state, code)
+        return page(f"{publish.NAMES[p]} is connected", True)
+    except Exception as e:
+        return page(str(e)[:300], False)
+
+
+@app.post("/api/publish/{platform}/token")
+def pub_token(platform: str, body: dict = Body(...)):
+    try:
+        return {"user": publish.set_token(platform, body.get("token", ""))}
+    except Exception as e:
+        raise HTTPException(400, str(e)[:300])
+
+
+@app.post("/api/publish/{platform}/disconnect")
+def pub_disconnect(platform: str):
+    publish.disconnect(platform)
+    return {"ok": True}
+
+
+@app.post("/api/publish/auto")
+def pub_auto(body: dict = Body(...)):
+    publish.set_auto(body.get("on"), body.get("min_score", 80), body.get("platforms") or [])
+    return publish.public()["auto"]
+
+
+@app.post("/api/jobs/{jid}/publish")
+def pub_clips(jid: str, body: dict = Body(...)):
+    j = job_or_404(jid)
+    ns = body.get("ns")
+    if ns is None:  # everything rendered, optionally above a score
+        mn = int(body.get("min_score") or 0)
+        ns = [c["n"] for c in j.data.get("clips", []) if c.get("file") and not c.get("pending") and int(c.get("score") or 0) >= mn]
+    try:
+        k = jobs.publish_clips(j, ns, body.get("platforms") or [])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not k:
+        raise HTTPException(400, "Nothing new to publish (clips must be rendered, and each goes to a platform once)")
+    return {"queued": k}
 
 
 @app.post("/api/reveal")
@@ -547,5 +773,6 @@ if __name__ == "__main__":
         print("  ffmpeg was not found. Run Install.bat again (it downloads ffmpeg into the tools folder).")
     if "--no-browser" not in sys.argv:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+    watch.start(jobs.create, lambda jid: bool(jobs.get(jid)) and jobs.get(jid).get("status") in ("running", "queued", "paused"))
     print(f"\n  Aru Clips is running at http://127.0.0.1:{port}\n  Keep this window open while you use the app.\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aru Clips · Aru Animator</title><link rel="icon" href="/brand/logo.png?v=lime">
+<title>Aru Clips · Aru Animator</title><script src="/ui/hls.min.js" defer></script><link rel="icon" href="/brand/logo.png?v=lime">
 <style>
 :root{
   --bg:#141D25;--panel:#1E2A35;--panel2:#2B3A48;--side:#1A2530;--line:rgba(255,255,255,.08);--text:#E8EEF3;--mute:#8A97A3;
@@ -535,13 +535,92 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
 .fxlist{display:flex;flex-direction:column;gap:8px}
 .fxlist .toggle{font-size:13px}
 @media (max-width:1100px){.sgrid{grid-template-columns:1fr;overflow:auto}.scol.ctl{max-height:none}}
+
+/* ===== projects, player, board, publishing ===== */
+.sidebtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 10px;border-radius:9px;color:var(--mute);font-weight:500;margin-bottom:2px;transition:.15s}
+.sidebtn:hover,.sidebtn.on{background:#ffffff0d;color:var(--text)}
+.sbadge{margin-left:auto;font-size:11px;font-weight:700;color:#141D25;background:var(--accent);border-radius:999px;padding:1px 7px}
+.sbadge:empty{display:none}.sbadge.live{background:#ff5d5d;color:#fff}
+.sideh2{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+.clearbtn{font-size:11px;color:var(--mute);padding:2px 8px;border-radius:999px;text-transform:none;letter-spacing:0}
+.clearbtn:hover{background:#ffffff12;color:var(--text)}
+.hist{position:relative}
+.hist .hx{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;display:none;align-items:center;justify-content:center;color:var(--mute);background:#141D25;font-size:13px}
+.hist:hover .hx{display:flex}.hist .hx:hover{color:#ff7a7a}
+.hist small.paused{color:var(--accent)}
+.btn.danger:hover{background:#4a2026;color:#ffb3b3}
+.btn.sm{padding:4px 10px;font-size:12px}
+.wmcard{margin:16px 0 4px;padding:14px 16px;border-radius:16px;background:#141D25;border:1px solid var(--line)}
+.wmhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wmbody{display:grid;grid-template-columns:92px 1fr;gap:14px;margin-top:12px;align-items:start}
+.wmbody.off{display:none}
+.wmprev{position:relative;width:92px;height:164px;border-radius:12px;background:linear-gradient(160deg,#3A4856,#1E2A35);overflow:hidden;border:1px solid var(--line)}
+.wmmark{position:absolute;display:flex;align-items:center;gap:3px}
+.wmmark img{height:100%;display:block}.wmmark img[src=""]{display:none}
+.wmmark span{font-size:6.5px;font-weight:800;color:#fff;text-shadow:0 0 2px #000;white-space:nowrap}
+.wmimgs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.wmimgs .wmi{position:relative;width:52px;height:52px;border-radius:10px;background:#263443 center/contain no-repeat;border:1px solid var(--line);cursor:pointer}
+.wmimgs .wmi.on{box-shadow:0 0 0 2px var(--accent)}
+.wmimgs .wmi.add{display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:20px}
+.wmimgs .wmi .x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#141D25;color:var(--mute);font-size:11px;display:none;align-items:center;justify-content:center}
+.wmimgs .wmi:hover .x{display:flex}
+#wmCustom .inp{margin-bottom:10px}
+.playercard{margin-bottom:16px;padding:16px 18px}
+.pvhead{display:flex;align-items:center;gap:10px;margin-bottom:10px}.pvhead .hint{flex:1;margin:0}
+.pwrap{position:relative;background:#000;border-radius:14px;overflow:hidden;max-height:60vh;display:flex;justify-content:center}
+.pwrap video{width:100%;max-height:60vh;display:block}
+.pvlive{position:absolute;top:10px;left:10px;background:#ff3b3b;color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.04em}
+.mbar{position:relative;height:38px;margin-top:12px;border-radius:10px;background:#101820;border:1px solid var(--line);cursor:crosshair;overflow:hidden;user-select:none;touch-action:none}
+.mclips i{position:absolute;top:0;bottom:0;background:#C2F54C33;border-left:1px solid #C2F54C88;border-right:1px solid #C2F54C88}
+.mclips i.pend{background:#8A97A333;border-color:#8A97A388}
+.msel{position:absolute;top:0;bottom:0;background:#C2F54C55;border:2px solid var(--accent);border-radius:6px;display:none}
+.msel .h{position:absolute;top:0;bottom:0;width:10px;cursor:ew-resize}.msel .h.l{left:-6px}.msel .h.r{right:-6px}
+.mhead{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;box-shadow:0 0 6px #000}
+.mtimes{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mute);margin-top:4px;font-variant-numeric:tabular-nums}
+.mtimes #mTsel{color:var(--accent);font-weight:600}
+.mctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.mquick{display:flex;gap:6px;align-items:center;margin-left:auto;color:var(--mute);font-size:12px}
+.stars{display:flex;gap:2px;align-items:center;margin:2px 0 6px}
+.stars button{font-size:17px;line-height:1;color:#3A4856;padding:0 1px;transition:.12s}
+.stars button.on{color:var(--accent)}.stars button:hover{transform:scale(1.15)}
+.stars small{margin-left:6px;color:var(--mute);font-size:11px}
+.pubs{display:flex;gap:5px;flex-wrap:wrap;margin:4px 0}
+.pubs a,.pubs span{font-size:11px;padding:2px 8px;border-radius:999px;background:#263443;color:var(--text);text-decoration:none}
+.pubs .done{background:#C2F54C22;color:var(--accent)}.pubs .error{background:#4a2026;color:#ffb3b3}
+.pubs .uploading,.pubs .queued{color:var(--mute)}
+.proj{font-size:11.5px;color:var(--mute);cursor:pointer}.proj:hover{color:var(--accent)}
+.wlist,.publist{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.witem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#141D25;border:1px solid var(--line)}
+.witem b{font-weight:600}.witem small{display:block;color:var(--mute);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px}
+.witem .dot{width:9px;height:9px;border-radius:50%;background:#3A4856;flex:none}.witem .dot.live{background:#ff4d4d;box-shadow:0 0 8px #ff4d4d}
+.witem .sp{flex:1;min-width:0}
+.pitem{padding:12px 14px;border-radius:14px;background:#141D25;border:1px solid var(--line)}
+.pitem .ph{display:flex;align-items:center;gap:10px}.pitem .ph b{flex:1}
+.pitem .ok{color:var(--accent);font-size:12px}.pitem .err{color:#ffb3b3;font-size:12px;margin-top:6px}
+.pitem .pf{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.pitem .pf .full{grid-column:1/-1}
+.pitem .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.pitem details{margin-top:8px;font-size:12px;color:var(--mute)}.pitem details ol{margin:6px 0 0 18px;padding:0;line-height:1.55}
+.autopub{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 14px;border-radius:14px;background:#C2F54C0f;border:1px solid #C2F54C33;margin-top:10px}
+.applats{display:flex;gap:6px;flex-wrap:wrap}
+.applats label,.ppplats label{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#263443;font-size:12.5px;cursor:pointer}
+.applats input,.ppplats input{accent-color:#C2F54C}
+.ppplats{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.ppplats label{border-radius:12px;padding:10px 12px;font-size:14px}
+.ppplats label.dis{opacity:.45;cursor:not-allowed}
+code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
+#wmMode button,#boardSeg button{white-space:nowrap}
+.rnum{width:72px;flex:none;text-align:center}
 </style>
 </head>
 <body>
 <aside>
   <div class="logo"><img src="/brand/logo.png?v=lime" alt=""><span class="brandname">Aru Clips</span></div>
   <button class="newbtn" onclick="showNew()">＋ New project</button>
-  <div class="side-h">Projects</div>
+  <button class="sidebtn" id="boardBtn" onclick="showBoard()">▦ Clip board <span class="sbadge" id="boardBadge"></span></button>
+  <button class="sidebtn" onclick="openWatch()">◉ Streamers <span class="sbadge live" id="watchBadge"></span></button>
+  <button class="sidebtn" onclick="openPub()">⇪ Publishing</button>
+  <div class="side-h sideh2">Projects <button class="clearbtn" onclick="clearProjects()" title="Delete every project that isn't running">Clear</button></div>
   <div id="history"></div>
   <div class="sidefoot">
     <div class="status" id="status"></div>
@@ -585,6 +664,26 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
         <div class="field" style="grid-column:1/-1"><label class="toggle"><input type="checkbox" id="lvInstant" checked><span></span>Instant clip the moment chat explodes (don't wait for the batch)</label></div>
       </div>
       <p class="hint" id="srcHint" style="display:none"></p>
+
+      <div class="wmcard" id="wmCard">
+        <div class="wmhead"><div class="sech" style="margin:0">Watermark</div>
+          <div class="seg" id="wmMode"><button data-v="aru" class="on">Aru Animator</button><button data-v="custom">Custom</button><button data-v="off">Off</button></div></div>
+        <div class="wmbody" id="wmBody">
+          <div class="wmprev" id="wmPrev"><div class="wmmark" id="wmMark"><img id="wmImg" alt=""><span id="wmTxt"></span></div></div>
+          <div class="wmctl">
+            <div id="wmCustom" style="display:none">
+              <div class="wmimgs" id="wmImgs"></div>
+              <input class="inp" id="wmText" placeholder="Text, e.g. @yourhandle (optional)" maxlength="40" oninput="wmSave()">
+              <input type="file" id="wmIn" accept="image/png,image/jpeg,image/webp" hidden>
+            </div>
+            <div class="seg" id="wmPos"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl" class="on">Bottom left</button><button data-v="br">Bottom right</button></div>
+            <div class="grid2" style="gap:10px;margin-top:10px">
+              <div class="field" style="margin:0"><label>Size <span class="rangeval" id="wmSizeV">100%</span></label><input type="range" id="wmSize" min="50" max="200" value="100" oninput="wmSave()"></div>
+              <div class="field" style="margin:0"><label>Opacity <span class="rangeval" id="wmOpV">92%</span></label><input type="range" id="wmOp" min="15" max="100" value="92" oninput="wmSave()"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="tabs" id="tabs">
         <button data-v="clips" class="on">Clips</button><button data-v="layout">Layout</button><button data-v="fonts">Fonts</button><button data-v="colors">Colors</button>
@@ -693,9 +792,7 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
       <div class="pane" id="p-format">
         <div class="block"><div class="sech">Output format <span style="font-weight:400">Applies to every clip</span></div>
           <div class="fmts" id="fmts"></div></div>
-        <div class="block" style="margin-top:18px"><div class="sech">Branding <span style="font-weight:400">Aru Animator logo and aru_animator in a corner of every clip</span></div>
-          <label class="toggle"><input type="checkbox" id="wmOn" checked><span></span>Add the Aru Animator logo</label>
-          <div class="seg" id="wmPos" style="margin-top:12px"><button data-v="tl">Top left</button><button data-v="tr">Top right</button><button data-v="bl" class="on">Bottom left</button><button data-v="br">Bottom right</button></div></div>
+        <p class="hint" style="margin-top:16px">The watermark (Aru Animator, your own, or none) is set at the top of this page.</p>
         <p class="hint" style="margin-top:16px">Wide formats keep the full frame. Tall formats crop to the speaker with face tracking, or fit the frame over a blurred background if you pick Blur fit in the Clips tab.</p>
       </div>
 
@@ -748,9 +845,28 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
     <div class="jobhead">
       <div><div class="side-h" style="padding:0 0 6px">Project</div><h1 id="jTitle">…</h1></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn" id="pauseBtn" style="display:none" onclick="pauseJob()">❚❚ Pause</button>
+        <button class="btn pri" id="resumeBtn" style="display:none" onclick="resumeJob()">▶ Resume</button>
+        <button class="btn" id="restartBtn" style="display:none" onclick="restartJob()">↻ Start over</button>
         <button class="btn" id="approveAll" style="display:none" onclick="approveAll()">Approve all</button>
         <button class="btn pri" id="exportBtn" style="display:none" onclick="exportPack()">Facebook / Instagram pack</button>
-        <button class="btn" id="openFolder">Open folder</button></div>
+        <button class="btn" id="openFolder">Open folder</button>
+        <button class="btn danger" onclick="deleteJob(current)" title="Delete this project and its clips">Delete</button></div>
+    </div>
+    <div class="card playercard" id="playerCard" style="display:none">
+      <div class="pvhead"><div class="sech" style="margin:0" id="pvLabel">Watch</div><span class="hint" id="pvNote"></span>
+        <button class="btn sm" id="pvToggle" onclick="togglePlayer()">Hide</button></div>
+      <div id="pvBody">
+        <div class="pwrap"><video id="pv" playsinline controls></video><div class="pvlive" id="pvLive" style="display:none">● LIVE</div></div>
+        <div class="mbar" id="mBar" title="Drag to select a moment, click to jump"><div class="mclips" id="mClips"></div><div class="msel" id="mSel"><i class="h l"></i><i class="h r"></i></div><div class="mhead" id="mHead"></div></div>
+        <div class="mtimes"><span id="mT0"></span><span id="mTsel"></span><span id="mT1"></span></div>
+        <div class="mctl">
+          <button class="btn" onclick="markIn()" title="Shortcut: I">⟦ Mark start</button>
+          <button class="btn" onclick="markOut()" title="Shortcut: O">Mark end ⟧</button>
+          <button class="btn pri" id="mGo" onclick="clipSel()" disabled>✂ Clip it</button>
+          <span class="mquick" id="mQuick"><span>Last</span><button class="btn sm" onclick="clipLast(30)">30 s</button><button class="btn sm" onclick="clipLast(60)">60 s</button><button class="btn sm" onclick="clipLast(90)">90 s</button></span>
+        </div>
+      </div>
     </div>
     <div class="card" id="progCard">
       <div class="jstage" id="jStage"></div>
@@ -765,6 +881,8 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
         <span class="bcount" id="selCount"></span>
         <button class="btn" id="delSel" onclick="deleteSelected()" disabled>Delete selected</button>
         <button class="btn" id="expSel" onclick="exportSelected()" disabled>Export selected</button>
+        <button class="btn" id="pubSel" onclick="publishSel()" disabled>⇪ Publish selected</button>
+        <button class="btn" onclick="publishRated()">⇪ Publish scoring ≥ <b id="pubMinV">80</b></button>
       </div>
       <div class="rateappr" id="rateAppr" style="display:none">
         <span>Approve clips rated</span><b>≥</b>
@@ -777,7 +895,54 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
     </div>
     <div class="clips" id="clips"></div>
   </section>
+
+  <!-- CLIP BOARD -->
+  <section id="boardView" class="wrap" style="display:none">
+    <div class="jobhead"><div><div class="side-h" style="padding:0 0 6px">Every project</div><h1>Clip board</h1></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <div class="seg" id="boardSeg"><button data-v="pending" class="on">Waiting</button><button data-v="all">All</button><button data-v="unpub">Not published</button></div>
+      </div></div>
+    <p class="hint" id="boardHint"></p>
+    <div class="clips" id="boardClips"></div>
+  </section>
 </main>
+
+<!-- STREAMERS -->
+<div class="modal" id="watchModal">
+  <div class="mbox" style="max-width:640px">
+    <h2>Streamers you clip</h2>
+    <p class="hint">Aru Clips checks every 3 minutes. When one goes live it starts a live project by itself with the settings you have on the New project page when you add them. Keep the app open.</p>
+    <div class="f field" style="display:flex;gap:8px"><input class="inp" id="wTarget" placeholder="twitch.tv/name, kick.com/name, @youtubehandle or a link" style="flex:1" onkeydown="if(event.key==='Enter')addWatch()">
+      <button class="btn pri" onclick="addWatch()">Add</button></div>
+    <div id="wList" class="wlist"></div>
+    <div class="mrow"><button class="btn" onclick="$('#watchModal').classList.remove('on')">Close</button></div>
+  </div>
+</div>
+
+<!-- PUBLISHING ACCOUNTS -->
+<div class="modal" id="pubModal">
+  <div class="mbox" style="max-width:720px">
+    <h2>Publishing</h2>
+    <p class="hint">Post clips straight to your accounts. Each platform needs your own free developer app (they don't allow shared keys in desktop apps). Your tokens stay on this PC. Callback URL to add to your apps: <code id="pubRedirect"></code></p>
+    <div class="autopub">
+      <label class="toggle"><input type="checkbox" id="apOn" onchange="saveAuto()"><span></span>Auto-publish new clips scoring</label>
+      <input type="number" class="inp rnum" id="apMin" min="0" max="100" value="80" onchange="saveAuto()"><span>or more to</span>
+      <span id="apPlats" class="applats"></span>
+    </div>
+    <div id="pubList" class="publist"></div>
+    <div class="mrow"><button class="btn" onclick="$('#pubModal').classList.remove('on')">Close</button></div>
+  </div>
+</div>
+
+<!-- PUBLISH CLIPS -->
+<div class="modal" id="pubPick">
+  <div class="mbox" style="max-width:460px">
+    <h2 id="ppTitle">Publish</h2>
+    <p class="hint" id="ppHint"></p>
+    <div id="ppPlats" class="ppplats"></div>
+    <div class="mrow"><button class="btn" onclick="$('#pubPick').classList.remove('on')">Cancel</button><button class="btn pri" id="ppGo">Publish</button></div>
+  </div>
+</div>
 
 <!-- SETTINGS -->
 <div class="modal" id="settings">
@@ -817,6 +982,10 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
     <div class="f field"><label>Browser login (for private, age-restricted, Facebook or Instagram links)</label>
       <select id="sCookies"><option value="">None</option><option value="chrome">Chrome</option><option value="safari">Safari</option><option value="firefox">Firefox</option><option value="edge">Edge</option><option value="brave">Brave</option></select>
       <div class="hint">The app borrows your signed-in session from that browser to read links that need a login. It stays on your PC.</div>
+    </div>
+    <div class="f field"><label>Learning from your ratings</label>
+      <label class="toggle"><input type="checkbox" id="sLearn" checked><span></span>Use my star ratings to score new clips my way</label>
+      <div class="hint" id="tasteInfo"></div>
     </div>
     <div class="f field"><label>Save clips to</label><input class="inp" id="sOut"></div>
     <div class="mrow"><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn pri" onclick="saveSettings()">Save</button></div>
@@ -1015,13 +1184,7 @@ async function startJob(){
   if(!url&&!picked)return toast('Paste a video or stream link, or drop a video first');
   const btn=$('#goBtn');btn.disabled=true;
   try{
-    const [mn,mx]=segVal($('#lenSeg')).split('-').map(Number);
-    const body={num_clips:+$('#num').value,min_len:mn,max_len:mx,crop_mode:layout,layout:{...layoutOpts},
-      caption_style:segVal($('#stySeg')),caption_position:$('#pos').value/100,title_overlay:$('#titleOv').checked,remove_silence:$('#cutSil').checked,
-      content:segVal($('#contentSeg')),game:$('#game').value,pre_roll:+$('#preRoll').value,post_roll:+$('#postRoll').value,
-      language:$('#lang').value,prompt:$('#prompt').value.trim(),format,look:{...look},sfx:{...sfx},
-      source_type:picked?'video':st,live:{record_min:+$('#lvTotal').value,chunk_min:+$('#lvChunk').value,per_chunk:+$('#lvPer').value,review:$('#lvReview').checked,auto_score:+$('#lvAuto').value,instant:$('#lvInstant').checked},
-      brand:{watermark:$('#wmOn').checked,pos:segVal($('#wmPos'))}};
+    const body=collectOpts(picked?'video':st);
     if(picked){
       btn.textContent='Uploading video…';
       const fd=new FormData();fd.append('file',picked);
@@ -1035,11 +1198,22 @@ async function startJob(){
   }catch(e){toast(e.message)}
   btn.disabled=false;updateSrc(segVal($('#srcSeg')));
 }
+function collectOpts(st){
+    const [mn,mx]=segVal($('#lenSeg')).split('-').map(Number);
+    return {num_clips:+$('#num').value,min_len:mn,max_len:mx,crop_mode:layout,layout:{...layoutOpts},
+      caption_style:segVal($('#stySeg')),caption_position:$('#pos').value/100,title_overlay:$('#titleOv').checked,remove_silence:$('#cutSil').checked,
+      content:segVal($('#contentSeg')),game:$('#game').value,pre_roll:+$('#preRoll').value,post_roll:+$('#postRoll').value,
+      language:$('#lang').value,prompt:$('#prompt').value.trim(),format,look:{...look},sfx:{...sfx},
+      live:{record_min:+$('#lvTotal').value,chunk_min:+$('#lvChunk').value,per_chunk:+$('#lvPer').value,review:$('#lvReview').checked,auto_score:+$('#lvAuto').value,instant:$('#lvInstant').checked},
+      source_type:st,brand:wmBrand()};
+}
 
 // ---------- views
-function showNew(){clearInterval(poll);current=null;$('#jobView').style.display='none';$('#newView').style.display='';markHist()}
+function showNew(){clearInterval(poll);clearInterval(boardPoll);current=null;pvStop();$('#jobView').style.display='none';$('#boardView').style.display='none';$('#boardBtn').classList.remove('on');$('#newView').style.display='';markHist()}
 async function openJob(id){
   if(selJob!==id){selClips=new Set();selJob=id}
+  if(current!==id)pvStop();
+  clearInterval(boardPoll);$('#boardView').style.display='none';$('#boardBtn').classList.remove('on');
   current=id;$('#newView').style.display='none';$('#jobView').style.display='';$('#clips').innerHTML='';
   markHist();clearInterval(poll);await refresh(true);
   poll=setInterval(()=>refresh(),1500);
@@ -1051,7 +1225,13 @@ async function refresh(force){
   $('#jTitle').textContent=j.title;
   $('#openFolder').onclick=()=>j.dir&&api('/api/reveal',{method:'POST',body:JSON.stringify({path:j.dir.split('/').pop()})});
   const running=j.status==='running'||j.status==='queued';
-  $('#progCard').style.display=(running||j.status==='error')?'':'none';
+  const paused=j.status==='paused';
+  $('#progCard').style.display=(running||paused||j.status==='error')?'':'none';
+  $('#pauseBtn').style.display=running?'':'none';
+  $('#resumeBtn').style.display=(paused||j.status==='error')?'':'none';
+  $('#restartBtn').style.display=running?'none':'';
+  $('#pauseBtn').disabled=/Pausing/.test(j.stage||'');
+  pvUpdate(j);
   $('#jStage').innerHTML=(running?'<div class="spin"></div>':'')+esc(j.stage);
   const rec=running&&j.opts&&j.opts.source_type==='live'&&j.live&&j.live.recording;
   $('#stopBtn').style.display=rec?'':'none';if(rec)$('#stopBtn').disabled=false;
@@ -1063,9 +1243,10 @@ async function refresh(force){
   const eb=$('#exportBtn');eb.style.display=nDone?'':'none';
   eb.disabled=ex.state==='running';eb.textContent=ex.state==='running'?`Writing captions ${ex.done||0}/${ex.total||'…'}…`:ex.state==='done'?'Export again':'Facebook / Instagram pack';
   if(ex.state==='done'&&ex.path!==shownExport){shownExport=ex.path;toast(`Pack ready: ${ex.count} clips with captions`+(ex.warnings&&ex.warnings.length?`. ${ex.warnings[0]}`:''));}
-  const sig=JSON.stringify(j.clips.map(c=>[c.n,c.rendered_at,c.rendering,c.pending]));
+  const sig=JSON.stringify(j.clips.map(c=>[c.n,c.rendered_at,c.rendering,c.pending,c.stars,c.published]));
   if(force||sig!==lastSig){lastSig=sig;renderClips(j)}
-  if(!running&&!j.clips.some(c=>c.rendering)&&ex.state!=='running'){clearInterval(poll);loadHistory()}
+  const uploading=j.clips.some(c=>Object.values(c.published||{}).some(p=>p.state==='queued'||p.state==='uploading'));
+  if(!running&&!j.clips.some(c=>c.rendering)&&ex.state!=='running'&&!uploading&&!pvActive()){clearInterval(poll);loadHistory()}
 }
 function renderClips(j){
   const box=$('#clips');
@@ -1090,11 +1271,13 @@ function renderClips(j){
       <div class="cbody">
         <h3>${esc(c.title)}</h3>
         <div class="why">${esc(c.reason)}</div>${pick}
+        ${starsHtml(c)}${pubsHtml(c)}
         <div class="cap">${esc(c.caption)}<div class="tags">${esc(tags)}</div></div>
         <div style="font-size:11.5px;color:var(--mute)">From ${fmt(c.start+(c.offset||0))} to ${fmt(c.end+(c.offset||0))} ${c.seg?'into the stream':'in the source'}</div>
         <div class="acts">
           <button class="btn" onclick="copyCap(${c.n})">Copy caption</button>
           <button class="btn" onclick="editClip(${c.n})">Edit</button>
+          <button class="btn" onclick="publishOne(${c.n})">Publish</button>
           <button class="btn" onclick="reveal('${c.file}')">Explorer</button>
         </div>
       </div></div>`}).join('');
@@ -1110,7 +1293,7 @@ function bulkUpdate(){
   const cs=$('#clips')._clips||[];const ids=new Set(cs.map(c=>c.n));selClips=new Set([...selClips].filter(n=>ids.has(n)));
   $('#bulkBar').style.display=cs.length?'':'none';
   const k=selClips.size;$('#selCount').textContent=k?`${k} selected`:'';$('#delSel').disabled=!k;
-  $('#expSel').disabled=!cs.some(c=>selClips.has(c.n)&&c.file&&!c.pending);
+  $('#expSel').disabled=!cs.some(c=>selClips.has(c.n)&&c.file&&!c.pending);$('#pubSel').disabled=$('#expSel').disabled;
   const all=$('#selAll');all.checked=cs.length>0&&k===cs.length;all.indeterminate=k>0&&k<cs.length;
   $('#rateAppr').style.display=cs.some(c=>c.pending)?'':'none';rateUpdate()}
 function rateUpdate(){const min=+$('#rateNum').value||0,pend=($('#clips')._clips||[]).filter(c=>c.pending&&!c.rendering);
@@ -1170,7 +1353,8 @@ async function loadHistory(){
   const items=await api('/api/jobs').catch(()=>[]);
   $('#history').innerHTML=items.length?items.map(h=>`<div class="hist" data-id="${h.id}" onclick="openJob('${h.id}')">
      ${h.thumb?`<img src="${h.thumb}">`:'<div class="ph"></div>'}
-     <div><b>${esc(h.title)}</b><small>${h.status==='running'?'Processing…':h.status==='error'?'Failed':h.count+' clips'}</small></div></div>`).join('')
+     <div><b>${esc(h.title)}</b><small class="${h.status==='paused'?'paused':''}">${h.status==='running'?'Processing…':h.status==='queued'?'Waiting…':h.status==='paused'?'Paused · '+h.count+' clips':h.status==='error'?'Failed':h.count+' clips'}</small></div>
+     <button class="hx" title="Delete project" onclick="event.stopPropagation();deleteJob('${h.id}')">✕</button></div>`).join('')
     :'<div style="color:var(--mute);font-size:12px;padding:8px">Your projects will show up here.</div>';
   markHist();
 }
@@ -1196,6 +1380,7 @@ async function openSettings(){
   $('#sWhisper').value=s.groq_whisper_model;$('#sOllama').value=s.ollama_model;$('#sOllamaUrl').value=s.ollama_url;$('#sOut').value=s.output_dir;$('#sCookies').value=s.cookies_browser||'';$('#sLocalW').value=s.local_whisper_model||'small';
   $('#sKeys').value=s.groq_extra_keys||'';$('#sGem').value=s.gemini_api_key||'';$('#sEnc').value=s.video_encoder||'auto';
   $('#sBk').value=s.backup_ai||'';$('#sBkKey').value=s.backup_key||'';$('#sBkModel').value=s.backup_model||'';bkHint();
+  $('#sLearn').checked=s.learn_taste!==false;tasteInfo();
   $('#settings').classList.add('on');
 }
 const BK={gemini:['Google Gemini','https://aistudio.google.com/apikey'],openrouter:['OpenRouter','https://openrouter.ai/keys'],cerebras:['Cerebras','https://cloud.cerebras.ai']};
@@ -1208,7 +1393,7 @@ async function saveSettings(){
     groq_llm_model:$('#sLlm').value,groq_whisper_model:$('#sWhisper').value,ollama_model:$('#sOllama').value.trim(),
     ollama_url:$('#sOllamaUrl').value.trim(),output_dir:$('#sOut').value.trim(),cookies_browser:$('#sCookies').value,local_whisper_model:$('#sLocalW').value,
     groq_extra_keys:$('#sKeys').value.trim(),gemini_api_key:$('#sGem').value.trim(),video_encoder:$('#sEnc').value,
-    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim()})});
+    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked})});
     closeSettings();toast('Settings saved');loadStatus();loadHistory()}catch(e){toast(e.message)}
 }
 document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('on')});
@@ -1781,7 +1966,7 @@ function restoreLook(saved){
 function initStudio(){
   initHoverPreviews();
   $('#bnglish').onchange=e=>{look.banglish=e.target.checked;renderLook()};
-  $('#wmPos').querySelectorAll('button').forEach(b=>b.onclick=()=>segSet($('#wmPos'),b.dataset.v));renderLayouts();loadFillers();renderPalettes();renderPickers();renderFormats();renderFx();renderLook();loadFonts();loadSfx()}
+  wmInit();renderLayouts();loadFillers();renderPalettes();renderPickers();renderFormats();renderFx();renderLook();loadFonts();loadSfx()}
 
 (async()=>{
   const s=await api('/api/settings').catch(()=>({}));settingsCache=s;
@@ -1794,7 +1979,252 @@ function initStudio(){
   if(s.pre_roll!=null)$('#preRoll').value=String(s.pre_roll);if(s.post_roll!=null)$('#postRoll').value=String(s.post_roll);
   restoreLook(s.look);initStudio();
   loadStatus();loadHistory();setInterval(loadStatus,15000);
+  loadBadges();setInterval(loadBadges,30000);
 })();
+
+// ======================================================================= watermark (main page)
+const WMK='aru_wm';let wm={mode:'aru',pos:'bl',size:100,op:92,image:'',text:''},wmList=[];
+function wmInit(){
+  try{Object.assign(wm,JSON.parse(localStorage.getItem(WMK)||'{}'))}catch(e){}
+  segSet($('#wmMode'),wm.mode);segSet($('#wmPos'),wm.pos);
+  seg($('#wmMode'),v=>{wm.mode=v;wmSave()});seg($('#wmPos'),v=>{wm.pos=v;wmSave()});
+  $('#wmSize').value=wm.size;$('#wmOp').value=wm.op;$('#wmText').value=wm.text||'';
+  $('#wmIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('file',f);
+    try{const r=await fetch('/api/watermarks',{method:'POST',body:fd});const j=await r.json();if(!r.ok)throw new Error(j.detail||'Upload failed');
+      wm.image=j.name;wm.mode='custom';segSet($('#wmMode'),'custom');await loadWm();wmSave()}catch(err){toast(err.message)}e.target.value=''};
+  loadWm();
+}
+async function loadWm(){wmList=await api('/api/watermarks').catch(()=>[]);if(wm.image&&!wmList.includes(wm.image))wm.image='';wmDraw()}
+function wmSave(){wm.size=+$('#wmSize').value;wm.op=+$('#wmOp').value;wm.text=$('#wmText').value;
+  try{localStorage.setItem(WMK,JSON.stringify(wm))}catch(e){}wmDraw()}
+function wmBrand(){return{mode:wm.mode,watermark:wm.mode!=='off',pos:wm.pos,size:+(7.5*wm.size/100).toFixed(2),opacity:wm.op/100,
+  image:wm.mode==='custom'?wm.image:'',text:wm.mode==='custom'?(wm.text||'').trim():''}}
+function wmDraw(){
+  $('#wmBody').classList.toggle('off',wm.mode==='off');$('#wmCustom').style.display=wm.mode==='custom'?'':'none';
+  const W=92,H=164,sz=Math.min(W,H)*0.075*wm.size/100,m=Math.min(W,H)*0.045,mk=$('#wmMark');
+  mk.style.height=sz+'px';mk.style.opacity=wm.op/100;
+  const img=wm.mode==='aru'?'/brand/logo.png?v=lime':(wm.image?'/wmfile/'+encodeURIComponent(wm.image):'');
+  const im=$('#wmImg');if(img)im.src=img;im.style.display=img?'':'none';
+  const t=wm.mode==='aru'?'aru_animator':(wm.text||'');$('#wmTxt').textContent=t;$('#wmTxt').style.fontSize=Math.max(4,sz*0.42)+'px';
+  const L=wm.pos[1]==='l',T=wm.pos[0]==='t';
+  mk.style.left=L?m+'px':'';mk.style.right=L?'':m+'px';mk.style.top=T?m+'px':'';mk.style.bottom=T?'':(m+H*0.01)+'px';
+  mk.style.flexDirection=L?'row':'row-reverse';
+  $('#wmSizeV').textContent=wm.size+'%';$('#wmOpV').textContent=wm.op+'%';syncRange($('#wmSize'));syncRange($('#wmOp'));
+  $('#wmImgs').innerHTML=wmList.map(n=>`<div class="wmi ${wm.image===n?'on':''}" style="background-image:url('/wmfile/${encodeURIComponent(n)}')" title="${esc(n)}" onclick="wm.image='${esc(n).replace(/'/g,"\\'")}';wmSave()"><span class="x" onclick="event.stopPropagation();wmDel('${esc(n).replace(/'/g,"\\'")}')">✕</span></div>`).join('')
+    +`<div class="wmi add" title="Upload a logo (transparent PNG works best)" onclick="$('#wmIn').click()">＋</div>`+(wm.image?`<div class="wmi add" title="No image, text only" onclick="wm.image='';wmSave()" style="font-size:11px">None</div>`:'');
+}
+async function wmDel(n){if(!confirm('Remove this watermark image?'))return;await api('/api/watermarks/'+encodeURIComponent(n),{method:'DELETE'}).catch(()=>{});if(wm.image===n)wm.image='';loadWm()}
+
+// ======================================================================= project actions
+async function pauseJob(){try{await api(`/api/jobs/${current}/pause`,{method:'POST'});toast('Pausing at the next safe point. You can close the app after it says Paused.')}catch(e){toast(e.message)}refresh(true)}
+async function resumeJob(){try{await api(`/api/jobs/${current}/resume`,{method:'POST'});toast('Carrying on from where it stopped');clearInterval(poll);poll=setInterval(()=>refresh(),1500)}catch(e){toast(e.message)}refresh(true);loadHistory()}
+async function restartJob(){if(!confirm('Start this project over? Its clips are deleted and it starts again from the beginning (a downloaded video is kept, so it won\'t download again).'))return;
+  try{await api(`/api/jobs/${current}/restart`,{method:'POST'});toast('Starting over…');pvStop();const id=current;setTimeout(()=>openJob(id),900)}catch(e){toast(e.message)}}
+async function deleteJob(id){if(!id)return;if(!confirm('Delete this project and all its clips? This can\'t be undone.'))return;
+  try{await api('/api/jobs/'+id,{method:'DELETE'});toast('Project deleted');if(id===current)showNew();setTimeout(loadHistory,700)}catch(e){toast(e.message)}}
+async function clearProjects(){const items=await api('/api/jobs').catch(()=>[]);const keep=items.filter(h=>h.status==='running'||h.status==='queued');const n=items.length-keep.length;
+  if(!n)return toast('Nothing to clear (running projects are kept)');
+  if(!confirm(`Delete ${n} project${n===1?'':'s'} and all their clips? Running projects are kept.`))return;
+  try{await api('/api/jobs/clear',{method:'POST',body:'{}'});toast(`Deleted ${n} project${n===1?'':'s'}`);if(current&&!keep.some(h=>h.id===current))showNew();setTimeout(loadHistory,900)}catch(e){toast(e.message)}}
+
+// ======================================================================= in-app player + manual clip bar
+let pvS=null,pvLast=0,pvHidden=false;
+function pvActive(){return !!(pvS&&pvS.kind==='live'&&pvS.recording)}
+function pvStop(){if(pvS&&pvS.hls)pvS.hls.destroy();const v=$('#pv');if(v){v.pause();v.removeAttribute('src');v.load()}pvS=null;$('#playerCard').style.display='none'}
+function togglePlayer(){pvHidden=!pvHidden;$('#pvBody').style.display=pvHidden?'none':'';$('#pvToggle').textContent=pvHidden?'Show':'Hide';if(pvHidden)$('#pv').pause()}
+async function pvUpdate(j){
+  if(pvS&&pvS.jid===j.id&&Date.now()-pvLast<4000)return;pvLast=Date.now();
+  let p;try{p=await api(`/api/jobs/${j.id}/player`)}catch(e){return}
+  if(j.id!==current)return;
+  if(!p.url){if(pvS)pvStop();return}
+  $('#playerCard').style.display='';
+  if(!pvS||pvS.jid!==j.id||pvS.url!==p.url)pvLoad(j.id,p);
+  Object.assign(pvS,{clips:p.clips,recording:p.recording,window:p.window});
+  $('#pvLabel').textContent=p.kind==='live'?(p.recording?'Watch live':'Recording'):'Source video';
+  $('#pvLive').style.display=p.kind==='live'&&p.recording?'':'none';
+  $('#mQuick').style.display=p.kind==='live'&&p.recording?'':'none';
+  $('#pvNote').textContent=p.kind==='live'?'Drag on the bar to pick a moment (or press I and O), then Clip it. Auto clipping keeps running.':'Drag on the bar to pick a moment (or press I and O), then Clip it.';
+}
+function pvLoad(jid,p){
+  if(pvS&&pvS.hls)pvS.hls.destroy();const v=$('#pv');pvS={jid,kind:p.kind,url:p.url,sel:null,hls:null,clips:[]};
+  if(p.kind==='live'){
+    if(window.Hls&&Hls.isSupported()){const h=new Hls({maxBufferLength:20,backBufferLength:60});h.loadSource(p.url);h.attachMedia(v);pvS.hls=h;
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{v.muted=true;v.play().catch(()=>{})})}
+    else if(v.canPlayType('application/vnd.apple.mpegurl'))v.src=p.url;
+    else $('#pvNote').textContent='The live preview needs a newer browser.';
+  }else v.src=p.url;
+  if(!pvS.ticking){pvS.ticking=true;pvTick()}
+}
+function pvRange(){const v=$('#pv');if(!pvS)return[0,0];
+  if(pvS.kind==='live'){const s=v.seekable;if(s&&s.length)return[s.start(0),s.end(s.length-1)];return[0,v.duration||0]}
+  return[0,isFinite(v.duration)?v.duration:0]}
+function pvWall(t){const v=$('#pv'),h=pvS&&pvS.hls,d=h&&h.playingDate;
+  if(d)return d.getTime()/1000+(t-v.currentTime);
+  const[a,b]=pvRange();return((pvS.window&&pvS.window.to)||Date.now()/1000)-(b-t)}
+function pvTime(t){if(pvS.kind!=='live')return fmt(t);const d=new Date(pvWall(t)*1000);return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function pvTick(){if(!pvS)return;requestAnimationFrame(pvTick);if(pvHidden||$('#playerCard').style.display==='none')return;
+  const now=performance.now();if(pvS._t&&now-pvS._t<120)return;pvS._t=now;pvDraw()}
+function pvDraw(){const v=$('#pv'),[a,b]=pvRange(),span=Math.max(0.01,b-a),X=t=>Math.min(100,Math.max(0,(t-a)/span*100));
+  $('#mHead').style.left=X(v.currentTime)+'%';$('#mT0').textContent=b?pvTime(a):'';$('#mT1').textContent=b?pvTime(b):'';
+  const cl=pvS.kind==='live'?[]:(pvS.clips||[]).filter(c=>!c.seg);
+  const sig=JSON.stringify([a|0,b|0,cl.map(c=>[c.n,c.start,c.end,c.pending])]);
+  if(sig!==pvS._csig){pvS._csig=sig;$('#mClips').innerHTML=cl.map(c=>`<i class="${c.pending?'pend':''}" style="left:${X(c.start)}%;width:${Math.max(.3,X(c.end)-X(c.start))}%" title="Clip ${c.n}: ${esc(c.title)}"></i>`).join('')}
+  const s=pvS.sel,m=$('#mSel');
+  if(s){m.style.display='block';m.style.left=X(s[0])+'%';m.style.width=(X(s[1])-X(s[0]))+'%';$('#mTsel').textContent=`${pvTime(s[0])} → ${pvTime(s[1])} · ${Math.round(s[1]-s[0])} s`}
+  else{m.style.display='none';$('#mTsel').textContent=''}
+  $('#mGo').disabled=!(s&&s[1]-s[0]>=2);
+}
+(function(){const bar=$('#mBar');if(!bar)return;let drag=null;
+  const tAt=e=>{const r=bar.getBoundingClientRect(),[a,b]=pvRange();return a+Math.min(1,Math.max(0,(e.clientX-r.left)/r.width))*(b-a)};
+  bar.addEventListener('pointerdown',e=>{if(!pvS)return;bar.setPointerCapture(e.pointerId);const t=tAt(e),h=e.target.closest('.h');
+    drag=h&&pvS.sel?{edge:h.classList.contains('l')?0:1,t0:t,moved:false}:{edge:null,t0:t,moved:false}});
+  bar.addEventListener('pointermove',e=>{if(!drag)return;const t=tAt(e);if(Math.abs(t-drag.t0)>0.3)drag.moved=true;if(!drag.moved)return;
+    if(drag.edge===null)pvS.sel=[Math.min(drag.t0,t),Math.max(drag.t0,t)];
+    else{const s=pvS.sel.slice();s[drag.edge]=t;pvS.sel=[Math.min(s[0],s[1]),Math.max(s[0],s[1])]}pvDraw()});
+  bar.addEventListener('pointerup',e=>{if(!drag)return;if(!drag.moved){$('#pv').currentTime=drag.t0}else{const v=$('#pv');v.currentTime=pvS.sel[0]}drag=null;pvDraw()});
+  document.addEventListener('keydown',e=>{if(!pvS||$('#playerCard').style.display==='none'||/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)||document.querySelector('.modal.on'))return;
+    if(e.key==='i'||e.key==='I')markIn();else if(e.key==='o'||e.key==='O')markOut()});
+})();
+function markIn(){if(!pvS)return;const t=$('#pv').currentTime,[a,b]=pvRange();pvS.sel=[t,Math.max(t+2,pvS.sel&&pvS.sel[1]>t+2?pvS.sel[1]:Math.min(b,t+30))];pvDraw()}
+function markOut(){if(!pvS)return;const t=$('#pv').currentTime,[a]=pvRange();pvS.sel=[Math.min(t-2,pvS.sel&&pvS.sel[0]<t-2?pvS.sel[0]:Math.max(a,t-30)),t];pvDraw()}
+async function sendManual(body){try{await api(`/api/jobs/${current}/manual`,{method:'POST',body:JSON.stringify(body)});
+    toast('Clipping your moment. It shows up below in a minute.');clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}catch(e){toast(e.message)}}
+function clipSel(){const s=pvS&&pvS.sel;if(!s||s[1]-s[0]<2)return toast('Pick at least 2 seconds');
+  if(s[1]-s[0]>180&&!confirm(`That's ${Math.round(s[1]-s[0])} seconds. Clip it anyway?`))return;
+  sendManual(pvS.kind==='live'?{wall_start:pvWall(s[0]),wall_end:pvWall(s[1])}:{start:s[0],end:s[1]});pvS.sel=null;pvDraw()}
+function clipLast(sec){const end=Date.now()/1000;sendManual({wall_start:end-sec,wall_end:end})}
+
+// ======================================================================= ratings + publishing on clips
+function starsHtml(c,jid){const s=c.stars||0,j=jid?`,'${jid}'`:'';
+  return `<div class="stars" title="Rate this clip. The app learns what you like from your ratings.">${[1,2,3,4,5].map(k=>`<button class="${k<=s?'on':''}" onclick="rateClip(${c.n},${k===s?0:k}${j})" aria-label="${k} star${k>1?'s':''}">★</button>`).join('')}<small>${s?'Rated':'Rate it'}</small></div>`}
+async function rateClip(n,k,jid){try{const r=await api(`/api/jobs/${jid||current}/clips/${n}/rate`,{method:'POST',body:JSON.stringify({stars:k})});
+    if(k&&r.n===r.min)toast(`${r.n} ratings: scoring now follows your taste`);else if(k&&!r.learning&&r.enabled)toast(`Rated. ${Math.max(0,r.min-r.n)} more and scoring starts learning your taste`)}catch(e){toast(e.message)}
+  jid?loadBoard():refresh(true)}
+const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['youtube','instagram','tiktok','x'];
+function pubsHtml(c){const p=c.published||{},k=Object.keys(p);if(!k.length)return'';
+  return `<div class="pubs">${k.map(x=>{const s=p[x];return s.state==='done'?`<a class="done" href="${esc(s.url||'#')}" target="_blank">✓ ${PN[x]}</a>`
+    :s.state==='error'?`<span class="error" title="${esc(s.error||'')}">✕ ${PN[x]} failed</span>`:`<span class="${s.state}">${s.state==='uploading'?'↑ Uploading to':'Waiting:'} ${PN[x]}</span>`}).join('')}</div>`}
+let pubCache=null;
+async function pubInfo(){pubCache=await api('/api/publish');return pubCache}
+async function pickPlatforms(title,hint,go,minVal){const p=await pubInfo().catch(()=>null);if(!p)return;
+  if(!PL.some(k=>p[k].connected)){toast('Connect an account first');openPub();return}
+  $('#ppTitle').textContent=title;
+  $('#ppHint').innerHTML=esc(hint)+(minVal!=null?`<div style="display:flex;align-items:center;gap:8px;margin-top:10px">Clips scoring at least <input type="number" class="inp rnum" id="ppMin" min="0" max="100" value="${minVal}"></div>`:'');
+  $('#ppPlats').innerHTML=PL.map(k=>`<label class="${p[k].connected?'':'dis'}"><input type="checkbox" value="${k}" ${p[k].connected?'checked':'disabled'}> ${p[k].name}${p[k].user?' · '+esc(p[k].user):''}${p[k].connected?'':' (not connected)'}</label>`).join('');
+  $('#ppGo').onclick=async()=>{const pl=[...$('#ppPlats').querySelectorAll('input:checked')].map(i=>i.value);if(!pl.length)return toast('Pick a platform');
+    $('#pubPick').classList.remove('on');await go(pl,minVal!=null?+$('#ppMin').value||0:null)};
+  $('#pubPick').classList.add('on')}
+function publishOne(n,jid){jid=jid||current;const c=jid===current?clipBy(n):boardClips.find(x=>x.jid===jid&&x.n===n);
+  pickPlatforms('Publish clip',c?c.title:'',pl=>pubSend(jid,{ns:[n],platforms:pl}))}
+function publishSel(){const ns=($('#clips')._clips||[]).filter(c=>selClips.has(c.n)&&c.file&&!c.pending).map(c=>c.n);if(!ns.length)return;
+  pickPlatforms(`Publish ${ns.length} clip${ns.length===1?'':'s'}`,'They upload one after another in the background.',pl=>pubSend(current,{ns,platforms:pl}))}
+function publishRated(){const m=+(localStorage.getItem('aru_pub_min')||80);
+  pickPlatforms('Publish by score','Every rendered clip in this project that clears the bar. Clips already on a platform are skipped.',(pl,min)=>{
+    try{localStorage.setItem('aru_pub_min',min)}catch(e){}$('#pubMinV').textContent=min;return pubSend(current,{min_score:min,platforms:pl})},m)}
+async function pubSend(jid,body){try{const r=await api(`/api/jobs/${jid}/publish`,{method:'POST',body:JSON.stringify(body)});toast(`Publishing ${r.queued} clip${r.queued===1?'':'s'}…`);
+    if(jid===current){clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}else loadBoard()}catch(e){toast(e.message)}}
+
+// ======================================================================= publishing accounts
+const PRIV={public:'Public',unlisted:'Unlisted',private:'Private',friends:'Friends only'};
+const PUBHELP={
+  youtube:{id:'OAuth client ID',secret:'Client secret',privacy:['public','unlisted','private'],steps:[
+    'Open <a href="https://console.cloud.google.com/" target="_blank">console.cloud.google.com</a>, create a project and enable <b>YouTube Data API v3</b>.',
+    'OAuth consent screen: choose External and add your own Google account as a test user.',
+    'Credentials → Create credentials → OAuth client ID → type <b>Desktop app</b>. Paste the client ID and secret here and press Connect.',
+    'Google keeps uploads from apps it hasn\'t audited private. Request the free YouTube API audit to post publicly.']},
+  instagram:{privacy:['public'],steps:[
+    'Make your Instagram a Professional account (Creator or Business).',
+    'Open <a href="https://developers.facebook.com/apps" target="_blank">developers.facebook.com/apps</a> → Create app → use case <b>Manage messaging and content on Instagram</b>.',
+    'Instagram → API setup with Instagram login: add your account and press <b>Generate token</b>. Paste it here and press Connect.',
+    'The token lasts 60 days and the app renews it while you keep using it.']},
+  tiktok:{id:'Client key',secret:'Client secret',privacy:['public','friends','private'],steps:[
+    'Open <a href="https://developers.tiktok.com/apps" target="_blank">developers.tiktok.com</a> → Manage apps → Connect an app.',
+    'Add <b>Login Kit</b> (Desktop, redirect URI {R}) and <b>Content Posting API</b> with Direct Post on. Scopes: user.info.basic, video.publish, video.upload.',
+    'Paste the client key and secret here and press Connect.',
+    'Until TikTok reviews your app, TikTok only allows private (Only me) posts.']},
+  x:{id:'OAuth 2.0 Client ID',secret:'Client secret (if shown)',privacy:['public'],steps:[
+    'Open <a href="https://developer.x.com/en/portal/dashboard" target="_blank">developer.x.com</a> → your app → User authentication settings.',
+    'OAuth 2.0 on, type <b>Native App</b>, permissions <b>Read and write</b>, callback URI {R}.',
+    'Paste the OAuth 2.0 client ID (and secret if X shows one) here and press Connect.',
+    'Posting videos needs an X API plan that includes media uploads.']}};
+async function openPub(){$('#pubModal').classList.add('on');renderPub()}
+async function renderPub(){let p;try{p=await pubInfo()}catch(e){return toast(e.message)}
+  $('#pubRedirect').textContent=p.redirect;
+  $('#apOn').checked=!!p.auto.on;$('#apMin').value=p.auto.min_score;
+  $('#apPlats').innerHTML=PL.map(k=>`<label><input type="checkbox" value="${k}" ${p.auto.platforms.includes(k)?'checked':''} onchange="saveAuto()"> ${PN[k]}</label>`).join('');
+  $('#pubList').innerHTML=PL.map(k=>{const a=p[k],h=PUBHELP[k];
+    return `<div class="pitem"><div class="ph"><b>${a.name}</b>${a.connected?`<span class="ok">✓ Connected${a.user?' as '+esc(a.user):''}</span><button class="btn sm" onclick="pubDisc('${k}')">Disconnect</button>`:''}</div>
+      ${a.error?`<div class="err">${esc(a.error)}</div>`:''}
+      <div class="pf">${k==='instagram'?`<input class="inp full" id="pt-${k}" placeholder="${a.connected?'Paste a new token to replace the current one':'Paste your Instagram access token'}" autocomplete="off">`
+        :`<input class="inp" id="pc-${k}" placeholder="${h.id}" value="${esc(a.client_id)}" autocomplete="off"><input class="inp" id="ps-${k}" type="password" placeholder="${a.has_secret?'•••• saved':h.secret}" autocomplete="off">`}
+        ${h.privacy.length>1?`<select class="inp" id="pp-${k}">${h.privacy.map(v=>`<option value="${v}" ${a.privacy===v?'selected':''}>Post as ${PRIV[v]}</option>`).join('')}</select>`:''}</div>
+      <div class="row">${k==='instagram'?`<button class="btn pri" onclick="pubToken('${k}')">Connect</button>`:`<button class="btn pri" onclick="pubConnect('${k}')">${a.connected?'Reconnect':'Connect'}</button>`}
+        <button class="btn" onclick="pubSaveApp('${k}')">Save</button></div>
+      <details><summary>How to set it up (free)</summary><ol>${h.steps.map(x=>`<li>${x.replace('{R}',`<code>${esc(p.redirect)}</code>`)}</li>`).join('')}</ol></details></div>`}).join('')}
+async function pubSaveApp(k,quiet){const body={};const pp=$('#pp-'+k);if(pp)body.privacy=pp.value;
+  if($('#pc-'+k)){body.client_id=$('#pc-'+k).value.trim();body.client_secret=$('#ps-'+k).value.trim()}
+  try{await api(`/api/publish/${k}/app`,{method:'POST',body:JSON.stringify(body)});if(!quiet){toast('Saved');renderPub()}}catch(e){toast(e.message)}}
+async function pubConnect(k){try{await pubSaveApp(k,true);const r=await api(`/api/publish/${k}/connect`,{method:'POST'});window.open(r.url,'_blank');
+    toast('Finish signing in in the new tab, then come back here');let t=0;const iv=setInterval(async()=>{t++;const p=await pubInfo().catch(()=>null);
+      if(p&&p[k].connected){clearInterval(iv);toast(`${p[k].name} connected`);if($('#pubModal').classList.contains('on'))renderPub()}if(t>100)clearInterval(iv)},3000)}catch(e){toast(e.message)}}
+async function pubToken(k){const v=$('#pt-'+k).value.trim();if(!v)return toast('Paste the token first');
+  try{await pubSaveApp(k,true);const r=await api(`/api/publish/${k}/token`,{method:'POST',body:JSON.stringify({token:v})});toast(`Connected as ${r.user}`);renderPub()}catch(e){toast(e.message)}}
+async function pubDisc(k){if(!confirm(`Disconnect ${PN[k]}?`))return;await api(`/api/publish/${k}/disconnect`,{method:'POST'}).catch(()=>{});renderPub()}
+async function saveAuto(){const pl=[...$('#apPlats').querySelectorAll('input:checked')].map(i=>i.value);
+  try{await api('/api/publish/auto',{method:'POST',body:JSON.stringify({on:$('#apOn').checked,min_score:+$('#apMin').value||80,platforms:pl})});
+    toast($('#apOn').checked?(pl.length?`Auto-publish on: clips scoring ${+$('#apMin').value}+ go to ${pl.map(x=>PN[x]).join(', ')}`:'Auto-publish is on, now tick the platforms'):'Auto-publish off')}catch(e){toast(e.message)}}
+
+// ======================================================================= clip board (every project)
+let boardClips=[],boardPoll=null;
+function showBoard(){clearInterval(poll);pvStop();current=null;markHist();$('#newView').style.display='none';$('#jobView').style.display='none';
+  $('#boardView').style.display='';$('#boardBtn').classList.add('on');loadBoard();clearInterval(boardPoll);boardPoll=setInterval(loadBoard,4000)}
+seg($('#boardSeg'),()=>loadBoard());
+async function loadBoard(){boardClips=await api('/api/board').catch(()=>boardClips);const f=segVal($('#boardSeg'))||'pending';
+  let cs=boardClips;if(f==='pending')cs=cs.filter(c=>c.pending);
+  if(f==='unpub')cs=cs.filter(c=>c.file&&!c.pending&&!Object.values(c.published||{}).some(p=>p.state==='done'));
+  const np=boardClips.filter(c=>c.pending).length;$('#boardBadge').textContent=np||'';
+  if($('#boardView').style.display==='none')return;
+  $('#boardHint').textContent=f==='pending'?(np?`${np} clip${np===1?' is':'s are'} waiting for you across all projects. Render or skip them in one click.`:''):`${cs.length} clips`;
+  const sig=JSON.stringify([f,cs.map(c=>[c.jid,c.n,c.rendered_at,c.rendering,c.pending,c.stars,c.published])]);if(sig===$('#boardClips')._sig)return;$('#boardClips')._sig=sig;
+  $('#boardClips').innerHTML=cs.length?cs.map(c=>{const cls=c.score>=85?'hot':c.score>=70?'warm':'';
+    const proj=`<div class="proj" onclick="openJob('${c.jid}')">${esc(c.project)} ›</div>`;
+    if(c.pending||(c.rendering&&!c.file))return `<div class="clip pend"><div class="vid"><img src="${c.thumb}" alt=""><div class="score ${cls}">${c.score}</div><div class="dur">${c.duration}s</div>
+      ${c.rendering?'<div class="busy"><div class="spin"></div>Rendering…</div>':''}</div>
+      <div class="cbody">${proj}<h3>${esc(c.title)}</h3><div class="why">${esc(c.reason)}</div>
+      <div class="acts"><button class="btn pri" onclick="boardAct('${c.jid}',${c.n},'approve')" ${c.rendering?'disabled':''}>Render this</button><button class="btn" onclick="boardAct('${c.jid}',${c.n},'reject')" ${c.rendering?'disabled':''}>Skip</button></div></div></div>`;
+    return `<div class="clip"><div class="vid"><video src="/media/${encodeURI(c.file)}?v=${c.rendered_at}" poster="${c.thumb}" controls preload="none" playsinline></video><div class="score ${cls}">${c.score}</div><div class="dur">${c.duration}s</div>
+      ${c.rendering?'<div class="busy"><div class="spin"></div>Re-rendering…</div>':''}</div>
+      <div class="cbody">${proj}<h3>${esc(c.title)}</h3>${starsHtml(c,c.jid)}${pubsHtml(c)}
+      <div class="acts"><button class="btn" onclick="publishOne(${c.n},'${c.jid}')">Publish</button><button class="btn" onclick="openJob('${c.jid}');setTimeout(()=>editClip(${c.n}),600)">Edit</button></div></div></div>`}).join('')
+    :`<div class="empty">${f==='pending'?'Nothing is waiting for approval.':'No clips here yet.'}</div>`}
+async function boardAct(jid,n,act){const p=api(`/api/jobs/${jid}/clips/${n}/${act}`,{method:'POST'});
+  if(act==='approve'){toast('Rendering…');p.catch(e=>toast(e.message)).then(loadBoard);setTimeout(loadBoard,600)}else{await p.catch(e=>toast(e.message));loadBoard()}}
+
+// ======================================================================= streamer watchlist
+const ago=t=>{const m=Math.round((Date.now()/1000-t)/60);return m<1?'just now':m<60?m+' min ago':Math.round(m/60)+' h ago'};
+async function openWatch(){$('#watchModal').classList.add('on');renderWatch()}
+async function renderWatch(){const it=await api('/api/watch').catch(()=>[]);
+  $('#watchBadge').textContent=it.filter(x=>x.live&&x.on).length||'';
+  $('#wList').innerHTML=it.length?it.map(x=>`<div class="witem"><span class="dot ${x.live?'live':''}"></span>
+    <div class="sp"><b>${esc(x.name)}</b><small>${x.live?'Live now'+(x.title?' · '+esc(x.title):''):x.checked?'Offline · checked '+ago(x.checked):x.on?'Checking soon…':'Paused'} · ${esc(x.url)}</small></div>
+    ${x.last_job?`<button class="btn sm" onclick="$('#watchModal').classList.remove('on');openJob('${x.last_job}')">Project</button>`:''}
+    <label class="toggle" title="Watch this streamer"><input type="checkbox" ${x.on?'checked':''} onchange="watchOn('${x.id}',this.checked)"><span></span></label>
+    <button class="btn sm danger" onclick="watchDel('${x.id}')">Remove</button></div>`).join(''):'<div class="hint">No streamers yet. Add the ones you clip and the app starts recording when they go live.</div>'}
+async function addWatch(){const t=$('#wTarget').value.trim();if(!t)return toast('Paste a streamer\'s link or name');
+  try{const opts=collectOpts('live');delete opts.url;await api('/api/watch',{method:'POST',body:JSON.stringify({target:t,opts})});$('#wTarget').value='';
+    toast('Added. It starts clipping when they go live.');renderWatch()}catch(e){toast(e.message)}}
+async function watchOn(id,on){await api('/api/watch/'+id,{method:'PATCH',body:JSON.stringify({on})}).catch(e=>toast(e.message));renderWatch()}
+async function watchDel(id){if(!confirm('Remove this streamer from your list?'))return;await api('/api/watch/'+id,{method:'DELETE'}).catch(()=>{});renderWatch()}
+async function loadBadges(){try{const b=await api('/api/board');$('#boardBadge').textContent=b.filter(c=>c.pending).length||''}catch(e){}
+  try{const w=await api('/api/watch');$('#watchBadge').textContent=w.filter(x=>x.live&&x.on).length||''}catch(e){}}
+
+// ======================================================================= learning info in Settings
+async function tasteInfo(){try{const t=await api('/api/taste');const w=t.weights,d=t.defaults;
+  const parts=Object.keys(w).map(k=>`${k[0].toUpperCase()+k.slice(1)} ×${w[k].toFixed(2)}`).join(' · ');
+  $('#tasteInfo').innerHTML=(t.n?`${t.n} rating${t.n===1?'':'s'} so far. `:'Rate clips with the stars on each card. ')+
+    (t.learning?`Learned weights: ${parts}. Audience signals count ${Math.round(t.blend*100)}%. `:`Learning starts after ${t.min} ratings. Now: ${parts}, audience ${Math.round(t.blend*100)}%. `)+
+    (t.n?'<a href="#" onclick="event.preventDefault();tasteReset()">Forget my ratings</a>':'')}catch(e){}}
+async function tasteReset(){if(!confirm('Forget all your ratings and go back to the default scoring?'))return;await api('/api/taste/reset',{method:'POST'});tasteInfo()}
 
 // ---- v2 interactions
 (function(){

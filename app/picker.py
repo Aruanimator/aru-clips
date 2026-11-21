@@ -1,7 +1,7 @@
 """Finds the most viral moments in a transcript (AI first, smart heuristics as backup)."""
 import math, re
 import numpy as np
-import ai, signals
+import ai, signals, taste
 
 PROFILES = {
     "gaming": """
@@ -67,7 +67,8 @@ How to judge a moment, most important first:
 3. It carries a payload: funny, shocking, inspiring, infuriating, a hot take, a vivid story, a myth busted, or advice people can use.
 4. People would comment on it or send it on. Curiosity gaps that get closed travel furthest.
 Skip: intros, "like and subscribe", sponsor reads, housekeeping, inside jokes that need the rest of the video, and flat stretches
-in the middle of a thought.
+in the middle of a thought. On streams also skip the junk: raids and shout-outs to raiders, ad breaks, "starting soon" / BRB /
+ending screens, reading donations or sub alerts, queue and loading screens, and dead air where nothing happens.
 
 Score every clip with the same four-part rubric, judged the same way in every batch (each part 0-25):
 - "hook": do the first 2 seconds grab someone who is scrolling?
@@ -78,7 +79,7 @@ Score every clip with the same four-part rubric, judged the same way in every ba
 Anchors for each part: 22-25 one of the best moments you would find in any video, 15-21 clearly good, 8-14 average, 0-7 weak.
 Most moments are average: use the full range. Titles read like a viral Short's caption that creates curiosity or stakes
 ("He lost $2M in one trade"), never a dry summary. Answer with JSON only. Write titles, reasons and captions in the same
-language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game))
+language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + taste.prompt_text())
 
 
 def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", game="any"):
@@ -107,12 +108,13 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
     return out, eng
 
 
-WEIGHTS = {"hook": 1.0, "emotion": 1.3, "payoff": 0.9, "share": 0.8}  # adds up to 4: 25 on every part = 100
+WEIGHTS = taste.DEFAULT_WEIGHTS  # adds up to 4: 25 on every part = 100. Learned from star ratings once there are enough.
 
 
 def rubric_score(c):
     """The clip's score from its four rubric parts, emotion weighted highest. Falls back to a plain score."""
     parts = {}
+    W = taste.weights()
     for k in WEIGHTS:
         try:
             parts[k] = max(0.0, min(25.0, float(c.get(k))))
@@ -121,7 +123,7 @@ def rubric_score(c):
     if len(parts) >= 3:
         for k in WEIGHTS:
             parts.setdefault(k, sum(parts.values()) / len(parts))
-        return int(round(sum(parts[k] * w for k, w in WEIGHTS.items()))), {k: int(round(v)) for k, v in parts.items()}
+        return int(round(sum(parts[k] * W[k] for k in WEIGHTS))), {k: int(round(v)) for k, v in parts.items()}
     try:
         return int(float(c.get("score", 60))), None
     except (TypeError, ValueError):
@@ -324,6 +326,7 @@ def pick(tr, total, n, mn, mx, mode="video", prompt="", loud=None, hype=(), log=
         cands = [dict(c, picked_by="backup picker (no AI)") for c in heuristic(words, segs, total, n, mn, mx, loud, hype)]
         engine = "heuristic"
     cands = [snap(c, words, segs, mn, mx, total) for c in cands if c["end"] > c["start"]]
+    cands = skip_junk(cands, words, segs, loud, log)
     cands.sort(key=lambda c: -c["score"])
     out = []
     for c in cands:
@@ -334,6 +337,53 @@ def pick(tr, total, n, mn, mx, mode="video", prompt="", loud=None, hype=(), log=
         if len(out) >= n:
             break
     return [finish_sentence(pad_clip(c, segs, total, pre, post), words, segs, mn, mx, total) for c in out], engine
+
+
+JUNK_RE = re.compile(r"\b(raid(ing|ers?|ed)?|thanks? for the raid|welcome (in )?raiders|ad break|ads? (are )?(playing|running)|"
+                     r"(we'?ll|i'?ll) be right back|\bbrb\b|starting soon|stream (is )?starting|this video is sponsored|"
+                     r"sponsored by|use (my )?code|link in (the )?(bio|description)|thanks? for the (sub|follow|bits|donation|dono|prime)|"
+                     r"gifted \d+ subs?|hype train|end(ing)? (the|this) stream|that'?s it for (today|the stream))\b", re.I)
+
+
+def skip_junk(cands, words, segs, loud=None, log=print):
+    """Drops clips that are mostly stream junk (raids, ads, BRB, sub alerts, sponsor reads) or dead air."""
+    out, dropped = [], 0
+    for c in cands:
+        a, b = c["start"], c["end"]
+        text = " ".join(g["text"] for g in segs if g["e"] > a and g["s"] < b)
+        hits = len(JUNK_RE.findall(text))
+        nw = sum(1 for w in words if a <= w["s"] < b)
+        quiet = False
+        if loud is not None and len(loud) > 1:
+            seg = np.asarray(loud)[int(max(0, a)):int(max(a + 1, b))]
+            quiet = seg.size > 0 and float(np.mean(seg)) < -42
+        if hits >= 2 or (hits == 1 and nw < 40) or (nw <= 3 and quiet):
+            dropped += 1
+            continue
+        out.append(c)
+    if dropped:
+        log(f"Skipped {dropped} moment{'s' if dropped != 1 else ''} that looked like stream junk (raids, ads, BRB, alerts) or dead air")
+    return out if out else cands
+
+
+def describe(text, lang="en", profile="general", game="any", log=print):
+    """Title, caption, hashtags and rubric score for a moment the user marked by hand."""
+    fallback = {"title": " ".join(text.split()[:7]) or "Your clip", "caption": "", "hashtags": [], "score": 0}
+    if not text.strip():
+        return fallback
+    user = (f"The creator marked this moment by hand. Transcript:\n{text[:3000]}\n\nWrite its title and post text, and score it "
+            'with the rubric. Return JSON: {"title":"scroll-stopping title, max 8 words","reason":"one sentence",'
+            '"hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,"caption":"social media caption with 1-2 emoji",'
+            '"hashtags":["#tag","#tag","#tag"]}')
+    try:
+        data, eng = ai.chat_json([{"role": "system", "content": _system("video", lang, profile, game)}, {"role": "user", "content": user}], log=log)
+        c = _clip_from(dict(data, start=0, end=1))
+        c.pop("start"); c.pop("end")
+        c["reason"] = "You marked this moment. " + c.get("reason", "")
+        return c
+    except Exception as e:
+        log(f"Couldn't title your clip with AI ({str(e)[:100]})")
+        return fallback
 
 
 # ---------------------------------------------------------------- audience-first picking
@@ -422,7 +472,9 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
                 if r and not (r["start"] - 2 <= c["peak"] <= r["end"] + 2):
                     r["start"], r["end"] = max(c["lo"], c["peak"] - mx * 0.5), min(c["hi"], c["peak"] + mx * 0.35)
                 if r:
-                    r["score"] = int(round(0.65 * r["score"] + 0.35 * (55 + 45 * c["sig"])))
+                    a = taste.blend()
+                    r["ai_score"], r["signal"] = r["score"], round(float(c["sig"]), 3)
+                    r["score"] = int(round((1 - a) * r["score"] + a * (55 + 45 * c["sig"])))
                     r["reason"] = (r["reason"] + (f" Audience: {c['why']}." if c["why"] else "")).strip()
                     picked.append(r)
             progress(min(1, (b + B) / len(cands)))
@@ -440,6 +492,7 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
                            "picked_by": "audience signals (no AI)"})
         engine = engine or "signals"
     picked = [soft_snap(c, segs, mn, mx, total) for c in picked]
+    picked = skip_junk(picked, words, segs, loud, log)
     picked.sort(key=lambda c: -c["score"])
     out = []
     for c in picked:

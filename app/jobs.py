@@ -2,7 +2,7 @@
 import json, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
 import numpy as np
 from config import output_dir, load_settings, slug, FFMPEG, popen, run, UPLOADS
-import ai, media, picker, render, signals
+import ai, media, picker, render, signals, publish, taste
 
 JOBS = {}
 _pipe_lock = threading.Lock()   # one download/transcribe pipeline at a time
@@ -15,6 +15,8 @@ class Job:
         self.data = data or {}
         self.lock = threading.RLock()
         self.stop = threading.Event()
+        self.pausing = False   # stop means "pause, keep everything for later" instead of "finish up"
+        self.thread = None
 
     # ---- state
     def get(self, k, default=None):
@@ -70,8 +72,9 @@ def load_all():
             data = json.loads(jf.read_text("utf-8"))
         except Exception:
             continue
-        if data.get("status") in ("running", "queued"):
-            data["status"] = "error"; data["error"] = "The app was closed while this project was running."
+        if data.get("status") in ("running", "queued") or (data.get("status") == "error" and str(data.get("error", "")).startswith("The app was closed")):
+            data["status"] = "paused"; data["error"] = None
+            data["stage"] = "Paused because the app was closed. Press Resume to carry on where it stopped."
         for c in data.get("clips", []):
             c.pop("rendering", None)
         JOBS[jid] = Job(jid, jf.parent, data)
@@ -104,15 +107,111 @@ def create(opts):
                      "title": title or opts.get("url") or "New project", "created": time.time(), "opts": opts, "export": {}})
     j.save()
     JOBS[jid] = j
-    target = run_live if opts.get("source_type") == "live" else run_job
-    threading.Thread(target=_guard, args=(j, target), daemon=True).start()
+    _start(j)
     return jid
+
+
+class Paused(BaseException):
+    """Raised at a safe point when the user pauses a project. BaseException so no 'except Exception' swallows it."""
+
+
+def _check(j):
+    if j.stop.is_set():
+        raise Paused()
+
+
+def _start(j):
+    j.stop = threading.Event()
+    j.pausing = False
+    target = run_live if (j.get("opts") or {}).get("source_type") == "live" else run_job
+    j.thread = threading.Thread(target=_guard, args=(j, target), daemon=True)
+    j.thread.start()
+
+
+def _busy(j):
+    return j.thread is not None and j.thread.is_alive()
+
+
+def pause(j):
+    """Stops work at the next safe point and keeps everything, so Resume carries on from there."""
+    if j.get("status") not in ("running", "queued") or not _busy(j):
+        return False
+    j.pausing = True
+    j.stop.set()
+    j.stage("Pausing…")
+    return True
+
+
+def resume(j):
+    if _busy(j) or j.get("status") not in ("paused", "error"):
+        return False
+    j.set(status="queued", error=None, stage="Resuming…")
+    j.log("Resumed")
+    _start(j)
+    return True
+
+
+def _halt(j, wait=60):
+    if _busy(j):
+        j.pausing = True
+        j.stop.set()
+        j.thread.join(timeout=wait)
+
+
+def restart(j):
+    """Start over in the same project: clips, picks and the recording are cleared; a downloaded video is kept."""
+    _halt(j)
+    live = (j.get("opts") or {}).get("source_type") == "live"
+    for p in list(j.dir.iterdir()):
+        keep = p.name == "job.json" or (not live and p.name.startswith("source.") and (j.get("steps") or {}).get("source"))
+        keep = keep or p.name in ("heatmap.json",) or (not live and p.name.startswith("chat"))
+        if keep:
+            continue
+        try:
+            shutil.rmtree(p) if p.is_dir() else p.unlink()
+        except OSError:
+            pass
+    steps = {"source": True} if not live and (j.get("steps") or {}).get("source") else {}
+    with j.lock:
+        for k in ("plan", "live_state", "live", "_last_n", "lang", "_enc_logged"):
+            j.data.pop(k, None)
+        j.data.update(clips=[], steps=steps, progress=0, error=None, export={}, status="queued", stage="Starting over…")
+        j.save()
+    j.log("Started over")
+    _start(j)
+
+
+def delete(jid):
+    j = get(jid)
+    if not j:
+        return False
+    _halt(j, 30)
+    JOBS.pop(jid, None)
+    for _ in range(10):  # Windows keeps files locked for a moment after ffmpeg exits
+        shutil.rmtree(j.dir, ignore_errors=True)
+        if not j.dir.exists():
+            break
+        time.sleep(0.5)
+    return True
+
+
+def next_n(j):
+    with j.lock:
+        n = max([c["n"] for c in j.data.get("clips", [])] + [int(j.data.get("_last_n", 0))]) + 1
+        j.data["_last_n"] = n
+        return n
 
 
 def _guard(j, fn):
     try:
         fn(j)
+    except Paused:
+        j.set(status="paused", error=None, stage="Paused. Press Resume to carry on from here, or Start over.")
+        j.log("Paused")
     except Exception as e:
+        if j.stop.is_set() and j.pausing:
+            j.set(status="paused", error=None, stage="Paused. Press Resume to carry on from here, or Start over.")
+            return
         traceback.print_exc()
         msg = media.friendly_error(e) if "yt_dlp" in type(e).__module__ or "Download" in type(e).__name__ else str(e)
         j.log(traceback.format_exc()[-1500:])
@@ -190,16 +289,28 @@ def _pads(o):
 
 def run_job(j):
     j.set(status="queued", stage="Waiting for the previous project to finish…")
-    with _pipe_lock:
+    while not _pipe_lock.acquire(timeout=1):
+        _check(j)
+    try:
         _run_job(j)
+    finally:
+        _pipe_lock.release()
 
 
 def _run_job(j):
     o = j.get("opts")
     j.set(status="running")
     mode = o.get("source_type") or "video"
+    steps = j.data.setdefault("steps", {})
+    done_src = next((p for p in j.dir.glob("source.*") if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".ts")
+                     and not re.search(r"\.f\d+\.", p.name)), None)
+    if not steps and done_src and (j.dir / "transcript.json").exists():  # a project from before pause/resume existed
+        steps.update(source=True, transcript=True)
     # 1. source
-    if o.get("file"):
+    if steps.get("source") and done_src:
+        src = done_src
+        j.stage("Video ready", 0.3)
+    elif o.get("file"):
         up = UPLOADS / o["file"]
         if not up.exists():
             raise RuntimeError("The uploaded file is missing. Drop it again.")
@@ -210,13 +321,16 @@ def _run_job(j):
         j.stage("Video ready", 0.3)
     else:
         j.stage("Downloading the video…", 0.01)
-        src, info = media.download(o["url"], j.dir, j.log, lambda f: j.set(progress=round(0.01 + 0.29 * f, 3)),
+        src, info = media.download(o["url"], j.dir, j.log, lambda f: (_check(j), j.set(progress=round(0.01 + 0.29 * f, 3))),
                                    want_chat=mode == "stream")
         j.set(title=info.get("title") or j.get("title"))
         if info.get("heatmap"):
             (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
             j.log("Got YouTube's most-replayed graph for this video")
         j.stage("Downloaded", 0.3)
+    with j.lock:
+        steps["source"] = True; j.save()
+    _check(j)
     meta = media.ffprobe(src)
     total = meta["duration"]
     j.log(f"Source: {meta['width']}x{meta['height']}, {int(total // 60)}m{int(total % 60)}s")
@@ -228,9 +342,19 @@ def _run_job(j):
         tw_thread.start()
     # 2. audio + transcript
     wav = j.dir / "audio.wav"
-    tr = _transcribe(j, src, wav, total, o.get("language", "auto"), 0.3, 0.6)
-    (j.dir / "transcript.json").write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+    trf = j.dir / "transcript.json"
+    if steps.get("transcript") and trf.exists():
+        tr = json.loads(trf.read_text("utf-8"))
+        if not wav.exists():
+            media.extract_audio(src, wav)
+        j.stage("Transcript ready (kept from before)", 0.6)
+    else:
+        tr = _transcribe(j, src, wav, total, o.get("language", "auto"), 0.3, 0.6)
+        trf.write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+    with j.lock:
+        steps["transcript"] = True; j.save()
     j.set(lang=tr["language"])
+    _check(j)
     # 3. audience signals + picking
     loud = media.loudness(wav) if meta["has_audio"] else np.array([-30.0])
     if tw_thread:
@@ -242,6 +366,10 @@ def _run_job(j):
     heat = json.loads((j.dir / "heatmap.json").read_text("utf-8")) if (j.dir / "heatmap.json").exists() else None
     want_split = o.get("crop_mode") == "split2"
     ok = None
+    if steps.get("picked") and j.get("plan") is not None:
+        clips = j.get("plan")
+        j.log(f"Using the {len(clips)} moments picked before the pause")
+        return _render_plan(j, clips)
     if want_split:
         j.stage("Checking where the streamer is on screen…", 0.615)
         try:
@@ -267,15 +395,33 @@ def _run_job(j):
             "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True), "format": o.get("format", "9:16"),
             "remove_silence": bool(o.get("remove_silence"))}
     clips.sort(key=lambda c: -c["score"])
-    for k, c in enumerate(clips):
-        c.update(base, n=k + 1)
-        j.stage(f"Rendering clip {k + 1} of {len(clips)}: {c['title'][:50]}", 0.7 + 0.3 * k / len(clips))
+    for c in clips:
+        c.update(base, n=next_n(j))
+    with j.lock:
+        j.data["plan"] = clips; steps["picked"] = True; j.save()
+    _render_plan(j, clips)
+
+
+def _render_plan(j, clips):
+    """Renders the picked moments that aren't rendered yet (all of them, or what's left after a pause)."""
+    have = {c["n"] for c in j.data.get("clips", []) if c.get("file")}
+    gone = {c["n"] for c in j.data.get("clips", [])} - have  # half-rendered when paused: render again
+    with j.lock:
+        j.data["clips"] = [c for c in j.data["clips"] if c["n"] not in gone]
+    todo = [c for c in clips if c["n"] not in have]
+    for k, c in enumerate(todo):
+        _check(j)
+        if c["n"] in (j.data.get("_deleted") or []):
+            continue
+        c = dict(c)
+        j.stage(f"Rendering clip {len(have) + k + 1} of {len(clips)}: {c['title'][:50]}", 0.7 + 0.3 * (len(have) + k) / len(clips))
         with j.lock:
             j.data["clips"].append(c)
         try:
             render_one(j, c)
+            auto_publish(j, c)
         except Exception as e:
-            j.log(f"Clip {k + 1} failed: {str(e)[:300]}")
+            j.log(f"Clip {c['n']} failed: {str(e)[:300]}")
             with j.lock:
                 j.data["clips"].remove(c)
     for p in j.dir.glob("*_part_*.*"):
@@ -312,7 +458,7 @@ def _transcribe(j, src, wav, total, lang, p0, p1):
     s = load_settings()
     who = "Groq Whisper" if ai.has_groq(s) else "Whisper on this PC"
     j.stage(f"Transcribing with {who}…", p0 + 0.01)
-    tr = ai.transcribe(wav, total, lang, j.log, lambda f: j.set(progress=round(p0 + 0.01 + (p1 - p0 - 0.01) * f, 3)))
+    tr = ai.transcribe(wav, total, lang, j.log, lambda f: (_check(j), j.set(progress=round(p0 + 0.01 + (p1 - p0 - 0.01) * f, 3))))
     j.log(f"Transcribed {len(tr['words'])} words ({tr['language']}) with {tr['engine']}")
     return tr
 
@@ -327,9 +473,12 @@ def run_live(j):
     review = bool(lv.get("review", True))
     auto_score = int(lv.get("auto_score") or 0)  # with review on: clips scoring this or higher render without asking
     ldir = j.dir / "live"; ldir.mkdir(exist_ok=True)
+    (ldir / "hls").mkdir(exist_ok=True)
     s = load_settings()
+    st = j.get("live_state") or {}  # what an earlier session (before a pause) already did
     probe = media.probe_url(o["url"])
-    j.set(status="running", title="LIVE · " + (probe.get("title") or o["url"]), live={"recording": True, "elapsed": 0, "parts": 0})
+    j.set(status="running", title="LIVE · " + (probe.get("title") or o["url"]),
+          live={"recording": True, "elapsed": int(st.get("elapsed", 0)), "parts": len(st.get("done", []))})
     j.stage("Connecting to the live stream…", 0.02)
     ylog = open(ldir / "recorder.log", "ab")
     rec_state = {"proc": None, "restarts": 0}
@@ -352,7 +501,11 @@ def run_live(j):
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-copyts"] + args + maps + [
             "-c", "copy", "-f", "segment"] + (
             ["-segment_times", ",".join(f"{first + k * chunk:.0f}" for k in range(400))] if first else ["-segment_time", str(chunk)]) + [
-            "-segment_start_number", str(start_no), str(ldir / "seg_%03d.ts")]
+            "-segment_start_number", str(start_no), str(ldir / "seg_%03d.ts")] + maps + [
+            # a second copy as short HLS pieces: the in-app player watches it and manual clips are cut from it
+            "-c", "copy", "-f", "hls", "-hls_time", "4", "-hls_list_size", "1800",
+            "-hls_flags", "delete_segments+append_list+program_date_time+omit_endlist" + ("+discont_start" if start_no else ""),
+            "-hls_segment_filename", str(ldir / "hls" / "h_%06d.ts"), str(ldir / "hls" / "live.m3u8")]
         rec_state["proc"] = popen(cmd, stdin=subprocess.PIPE, stderr=ylog)
         return True
 
@@ -375,13 +528,29 @@ def run_live(j):
                 first_seen.setdefault(q.stem, time.time())
             time.sleep(1)
     threading.Thread(target=watch, daemon=True).start()
-    if not start_recorder():
+    carry = list(st.get("carry", []))  # parts cut short by a dropped connection or a pause, joined with the rest of their batch
+    resume_left = None
+    if st:  # resuming: the part that was recording when it paused waits for the rest of its batch
+        left_over = [x for x in sorted(q.stem for q in ldir.glob("seg_*.ts")) if x not in st.get("done", []) and x not in carry]
+        if left_over:
+            def _d(x):
+                try:
+                    return media.ffprobe(ldir / (x + ".ts"))["duration"] or 0
+                except Exception:
+                    return 0
+            have = sum(_d(x) for x in carry + left_over[-1:])
+            if have < chunk * 0.9:
+                carry.append(left_over[-1])
+                resume_left = max(20.0, chunk - have)
+        j.log("Reconnecting to the stream to carry on recording")
+    if not start_recorder(resume_left):
         watch_stop.set()
         if chat_reader: chat_reader.stop.set()
         ylog.close()
         err = (ldir / "recorder.log").read_text("utf-8", "ignore")[-400:]
         raise RuntimeError("Could not open this live stream. " + media.friendly_error(err.replace("resolve: ", "")))
-    t0, done, offsets, durs, ncl = time.time(), set(), {}, {}, [0]
+    t0 = time.time() - float(st.get("elapsed", 0))
+    done, offsets, durs = set(st.get("done", [])) | set(carry), dict(st.get("offsets", {})), dict(st.get("durs", {}))
     spike_ranges = []          # wall-clock ranges already covered by instant clips
     ai_lock = threading.Lock()  # parts and instant clips take turns on the AI
     mn, mx = float(o.get("min_len", 20)), float(o.get("max_len", 60))
@@ -392,9 +561,7 @@ def run_live(j):
                  format=o.get("format", "9:16"), remove_silence=bool(o.get("remove_silence")))
 
     def add_clip(c, src_file):
-        with j.lock:
-            ncl[0] += 1
-            c["n"] = ncl[0]
+        c["n"] = next_n(j)
         if review and auto_score and int(c.get("score", 0)) >= auto_score:
             j.log(f"Clip {c['n']} scored {c.get('score')}: auto-approved (your bar is {auto_score})")
         if review and not (auto_score and int(c.get("score", 0)) >= auto_score):
@@ -408,6 +575,7 @@ def run_live(j):
                 j.data["clips"].append(c)
             try:
                 render_one(j, c)
+                auto_publish(j, c)
             except Exception as e:
                 j.log(f"Clip {c['n']} failed: {str(e)[:200]}")
                 with j.lock:
@@ -442,7 +610,7 @@ def run_live(j):
         use = [x for x in segs if x[1] + x[2] > g_a and x[1] < g_b]
         if not use or g_b - g_a < 6:
             j.log(f"Instant clip {k}: couldn't cut the recording yet"); return
-        name = f"spike_{k:03d}"
+        name = f"spike_{k + k0:03d}"
         raw = ldir / (name + ".ts")
         # Seeking inside live parts only lands on keyframes, so seek roughly (30 s early) and trim on the stream's own
         # clock: the recording keeps original timestamps, so both picture and sound are cut on the exact second.
@@ -484,6 +652,8 @@ def run_live(j):
             add_clip(c, p)
             j.log(f"⚡ Instant clip from a chat spike ({ratio:.1f}x normal): {c['title'][:60]}")
 
+    k0 = len(list(ldir.glob("spike_*.mp4")))  # numbering carries on after a pause
+
     def spike_watch():
         queue, last, k = [], 0.0, 0
         while not watch_stop.is_set() or queue:
@@ -522,8 +692,13 @@ def run_live(j):
         spike_thread = threading.Thread(target=spike_watch, daemon=True)
         spike_thread.start()
 
-    carry = []  # parts cut short by a dropped connection, waiting to be joined with the rest of their batch
-    batches = [0]
+    batches = [int(st.get("batches", 0))]
+
+    def save_state():
+        with j.lock:
+            j.data["live_state"] = {"done": sorted(done - set(carry)), "offsets": offsets, "durs": durs, "batches": batches[0],
+                                    "elapsed": int(time.time() - t0), "carry": carry}
+            j.save()
 
     def joined(names):
         """Joins pieces of one batch (before and after a reconnect) into one aligned part."""
@@ -574,11 +749,13 @@ def run_live(j):
         wav.unlink(missing_ok=True)
         for q in ldir.glob(name + "_part_*.*"):
             q.unlink(missing_ok=True)
+        save_state()
 
     def status(rec_on):
         el = int(time.time() - t0)
         n = len(j.data.get("clips", []))
         j.set(live={"recording": rec_on, "elapsed": el, "parts": len(done)})
+        save_state()
         lim = f" of {total_min} min" if total_min else ""
         inst = len([c for c in j.data.get("clips", []) if c.get("instant")])
         j.stage(f"● Recording live · {el // 60}:{el % 60:02d}{lim} · {n} clips so far"
@@ -646,8 +823,19 @@ def run_live(j):
         watch_stop.set()
         if chat_reader:
             chat_reader.stop.set()
+    if j.pausing:  # keep the unfinished part and everything not processed yet for Resume
+        cut = sorted(q.stem for q in ldir.glob("seg_*.ts"))
+        if cut and cut[-1] not in done:
+            carry.append(cut[-1]); done.add(cut[-1])
+        save_state()
+        j.set(live={"recording": False, "elapsed": int(time.time() - t0), "parts": len(done)})
+        raise Paused()
     j.set(live={"recording": False, "elapsed": int(time.time() - t0), "parts": len(done)})
     j.stage("Stopping. Finishing the last clips…")
+    pl = ldir / "hls" / "live.m3u8"
+    if pl.exists() and "#EXT-X-ENDLIST" not in pl.read_text("utf-8", "ignore"):
+        with open(pl, "a", encoding="utf-8") as f:
+            f.write("#EXT-X-ENDLIST\n")  # the player treats the finished recording as a normal video
     if spike_thread:
         spike_thread.join(timeout=900)
     rest = [nm for nm in sorted(p.stem for p in ldir.glob("seg_*.ts")) if nm not in done]
@@ -683,6 +871,192 @@ def run_live(j):
           stage=f"Recording finished. {pend} clips are waiting for your approval." if pend else f"Done! {n} clips saved.")
 
 
+# ======================================================================= publishing
+def publish_clips(j, ns, platforms):
+    """Queues rendered clips for upload. Returns how many were queued."""
+    platforms = [p for p in platforms if p in publish.PLATFORMS]
+    if not platforms:
+        raise ValueError("Pick at least one platform")
+    gaming = (j.get("opts") or {}).get("content") == "gaming"
+    k = 0
+    for n in ns:
+        c = j.clip(int(n))
+        if not c or not c.get("file") or c.get("pending"):
+            continue
+        todo = [p for p in platforms if (c.get("published") or {}).get(p, {}).get("state") not in ("done", "uploading", "queued")]
+        if not todo:
+            continue
+        with j.lock:
+            pub = c.setdefault("published", {})
+            for p in todo:
+                pub[p] = {"state": "queued"}
+            j.save()
+
+        def upd(p, st, c=c):
+            with j.lock:
+                c.setdefault("published", {})[p] = st
+                j.save()
+        meta = {"title": c.get("title", ""), "caption": c.get("caption", ""), "hashtags": c.get("hashtags") or [], "gaming": gaming}
+        publish.enqueue({"path": str(output_dir() / c["file"]), "meta": meta, "platforms": todo, "on_update": upd, "log": j.log})
+        k += 1
+    return k
+
+
+def auto_publish(j, c):
+    """Publishes a freshly rendered clip by itself when auto-publish is on and the clip clears the score bar."""
+    try:
+        a = publish.public()["auto"]
+        if not a.get("on") or not a.get("platforms") or c.get("pending") or not c.get("file"):
+            return
+        if int(c.get("score") or 0) < int(a.get("min_score", 80)) and not c.get("manual"):
+            return
+        ready = [p for p in a["platforms"] if publish.acct(p).get("access_token")]
+        if ready:
+            j.log(f"Clip {c['n']} scored {c.get('score')}: auto-publishing to " + ", ".join(publish.NAMES[p] for p in ready))
+            publish_clips(j, [c["n"]], ready)
+    except Exception as e:
+        j.log(f"Auto-publish failed: {str(e)[:200]}")
+
+
+def rate(j, n, stars):
+    c = j.clip(n)
+    if not c:
+        raise KeyError("clip")
+    stars = max(0, min(5, int(stars)))
+    with j.lock:
+        if stars:
+            c["stars"] = stars
+        else:
+            c.pop("stars", None)
+        j.save()
+    words, _ = _words_for(j, c, edited=False)
+    text = " ".join(w["w"] for w in words if c["start"] <= w["s"] <= c["end"])
+    taste.record(f"{j.id}:{n}", stars, c, text, (j.get("opts") or {}).get("content", "general"))
+    return taste.summary()
+
+
+def board(limit=400):
+    """Clips from every project on one board, waiting ones first."""
+    load_all()
+    out = []
+    for j in JOBS.values():
+        for c in j.data.get("clips", []):
+            if c.get("file") or c.get("pending"):
+                out.append(dict(c, jid=j.id, project=j.data.get("title", ""), project_status=j.data.get("status")))
+    out.sort(key=lambda c: (not c.get("pending"), -(c.get("rendered_at") or 0), -(c.get("score") or 0)))
+    return out[:limit]
+
+
+# ======================================================================= manual clips (picked in the in-app player)
+def _hls_index(ldir):
+    """[(file, wall_start, duration)] of the live preview pieces."""
+    import datetime
+    pl = ldir / "hls" / "live.m3u8"
+    if not pl.exists():
+        return []
+    out, pdt, dur = [], None, None
+    for line in pl.read_text("utf-8", "ignore").splitlines():
+        line = line.strip()
+        if line.startswith("#EXT-X-PROGRAM-DATE-TIME:"):
+            try:
+                pdt = datetime.datetime.fromisoformat(line.split(":", 1)[1]).timestamp()
+            except ValueError:
+                pdt = None
+        elif line.startswith("#EXTINF:"):
+            dur = float(line[8:].split(",")[0] or 0)
+        elif line and not line.startswith("#"):
+            if pdt is not None and dur and (ldir / "hls" / line).exists():
+                out.append((line, pdt, dur))
+            pdt, dur = (pdt + dur if pdt is not None and dur else None), None
+    return out
+
+
+def _hls_cut(ldir, wa, wb, out):
+    """Cuts wall-clock wa..wb out of the live preview pieces into an mp4 (picture and sound trimmed together)."""
+    idx = _hls_index(ldir)
+    if idx:
+        edge = idx[-1][1] + idx[-1][2]
+        if 0 < wb - edge < 20:  # the newest seconds aren't written yet: keep the length, end at the live edge
+            wa, wb = wa - (wb - edge), edge
+    use = [x for x in idx if x[1] + x[2] > wa and x[1] < wb]
+    if not use:
+        raise RuntimeError("That part of the stream isn't in the recording (the player keeps about the last 2 hours)")
+    rel = max(0.0, wa - use[0][1])
+    dur = min(wb, use[-1][1] + use[-1][2]) - max(wa, use[0][1])
+    if dur < 2:
+        raise RuntimeError("Pick at least 2 seconds")
+    lst = out.with_suffix(".txt")
+    lst.write_text("".join(f"file 'hls/{x[0]}'\n" for x in use), "utf-8")
+    raw = out.with_suffix(".cut.mp4")
+    run([FFMPEG, "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(lst), "-ss", f"{rel:.3f}", "-t", f"{dur:.3f}",
+         "-map", "0:v:0", "-map", "0:a:0?", "-af", "aresample=async=1000:first_pts=0",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", str(raw)], cwd=str(ldir))
+    lst.unlink(missing_ok=True)
+    if not raw.exists() or raw.stat().st_size < 5000:
+        raise RuntimeError("Couldn't cut that part of the stream")
+    os.replace(raw, out)  # already re-encoded from 0 with sound and picture together
+    return out
+
+
+def live_window(j):
+    """Wall-clock range the live player can clip from, for the UI."""
+    idx = _hls_index(j.dir / "live")
+    return {"from": idx[0][1], "to": idx[-1][1] + idx[-1][2]} if idx else None
+
+
+def manual_clip(j, body):
+    """A moment the user marked in the player. Rendered straight away (no approval needed: they picked it)."""
+    o = j.get("opts") or {}
+    live = o.get("source_type") == "live"
+    n = next_n(j)
+    c = {"n": n, "manual": True, "picked_by": "you (marked in the player)", "reason": "You marked this moment.",
+         "crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
+         "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True),
+         "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence")),
+         "title": "Your clip", "score": 0, "caption": "", "hashtags": [], "rendering": True, "start": 0, "end": 1}
+    if live:
+        wa, wb = float(body["wall_start"]), float(body["wall_end"])
+    else:
+        a, b = float(body["start"]), float(body["end"])
+        if b - a < 2:
+            raise ValueError("Pick at least 2 seconds")
+        c.update(start=round(a, 2), end=round(b, 2), duration=round(b - a, 1))
+    with j.lock:
+        j.data["clips"].append(c); j.save()
+
+    def work():
+        try:
+            if live:
+                ldir = j.dir / "live"
+                name = f"manual_{n:03d}"
+                p = _hls_cut(ldir, wa, wb, ldir / (name + ".mp4"))
+                d = media.ffprobe(p)["duration"]
+                wav = ldir / (name + ".wav")
+                media.extract_audio(p, wav)
+                tr = ai.transcribe(wav, d, o.get("language", "auto"), j.log)
+                wav.unlink(missing_ok=True)
+                (ldir / (name + ".json")).write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+                c.update(seg=name, start=0.0, end=round(d, 2), duration=round(d, 1))
+                words = tr.get("words", [])
+            else:
+                words, _ = _words_for(j, c)
+            text = " ".join(w["w"] for w in words if c["start"] - 0.2 <= w["s"] <= c["end"])
+            c.update(picker.describe(text, j.get("lang", "en"), o.get("content", "general"), o.get("game", "any"), j.log))
+            c["picked_by"] = "you (marked in the player)"
+            j.log(f"Rendering your clip {n}: {c['title'][:60]}")
+            render_one(j, c)
+            auto_publish(j, c)
+        except Exception as e:
+            j.log(f"Your clip {n} failed: {str(e)[:250]}")
+            with j.lock:
+                j.data["clips"] = [x for x in j.data["clips"] if x is not c]
+        finally:
+            with j.lock:
+                c.pop("rendering", None); j.save()
+    threading.Thread(target=work, daemon=True).start()
+    return n
+
+
 # ======================================================================= actions
 def approve(j, n):
     c = j.clip(n)
@@ -697,11 +1071,13 @@ def approve(j, n):
             c.pop("rendering", None); j.save()
     pend = j.dir / f"pending_{n:02d}.jpg"
     pend.unlink(missing_ok=True)
+    auto_publish(j, c)
 
 
 def reject(j, n):
     with j.lock:
         j.data["clips"] = [c for c in j.data["clips"] if c["n"] != n]
+        j.data["_deleted"] = sorted(set(j.data.get("_deleted") or []) | {n})
         j.save()
     (j.dir / f"pending_{n:02d}.jpg").unlink(missing_ok=True)
 
@@ -782,6 +1158,7 @@ def delete_clips(j, ns):
     with j.lock:
         gone = [c for c in j.data["clips"] if c["n"] in ns]
         j.data["clips"] = [c for c in j.data["clips"] if c["n"] not in ns]
+        j.data["_deleted"] = sorted(set(j.data.get("_deleted") or []) | ns)
         j.save()
     for c in gone:
         if c.get("file"):

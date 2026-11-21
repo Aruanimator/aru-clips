@@ -204,30 +204,83 @@ def _groq_chat(messages, s, json_mode=True, log=None, avoid=()):
 GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/"
 
 
+_gem_models = {}
+_GEM_PREFS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest", "gemini-2.0-flash"]
+
+
+def _gemini_models(key):
+    """Models this key can call right now. Google retires model names often, so ask instead of hard-coding them."""
+    c = _gem_models.get(key)
+    if c and time.time() - c[0] < 3600:
+        return c[1]
+    names = []
+    try:
+        r = requests.get(GEMINI.rstrip("/"), params={"pageSize": 200}, timeout=20, headers={"x-goog-api-key": key})
+        if r.status_code in (400, 401, 403):
+            raise EngineError("Gemini", r.status_code, r.text)
+        for m in r.json().get("models", []):
+            nm = m.get("name", "").split("/")[-1]
+            if "generateContent" in m.get("supportedGenerationMethods", []) and "gemini" in nm and not any(
+                    x in nm for x in ("embedding", "image", "tts", "audio", "live", "vision", "aqa", "robotics", "computer")):
+                names.append(nm)
+    except EngineError:
+        raise
+    except Exception:
+        pass
+    pref = [m for m in _GEM_PREFS if m in names]
+    rest = sorted((m for m in names if "flash" in m and m not in pref and "preview" not in m and "exp" not in m), reverse=True)
+    out = pref + rest or _GEM_PREFS[:]
+    _gem_models[key] = (time.time(), out)
+    return out
+
+
+def _gem_error(r):
+    try:
+        return r.json().get("error", {}).get("message") or r.text
+    except ValueError:
+        return r.text
+
+
 def _gemini_chat(messages, key, model=None, json_mode=True):
+    key = "".join(str(key).split())  # pasted keys often carry spaces or line breaks
     sys_txt = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     body = {"contents": [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]}
-                         for m in messages if m["role"] != "system"],
+                         for m in messages if m["role"] != "system"] or [{"role": "user", "parts": [{"text": sys_txt}]}],
             "generationConfig": {"temperature": 0.2}}
-    if sys_txt:
+    if sys_txt and any(m["role"] != "system" for m in messages):
         body["systemInstruction"] = {"parts": [{"text": sys_txt}]}
     if json_mode:
         body["generationConfig"]["responseMimeType"] = "application/json"
-    last = None
-    for m in [model or "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]:
+    tried, last = [], None
+    order = ([model.split("/")[-1]] if model else []) + _gemini_models(key)
+    for m in order:
+        if m in tried:
+            continue
+        tried.append(m)
         r = requests.post(GEMINI + m + ":generateContent", json=body, timeout=180, headers={"x-goog-api-key": key})
-        if r.status_code == 404:
-            last = EngineError("Gemini", 404, r.text); continue
+        msg = _gem_error(r) if r.status_code >= 400 else ""
+        if r.status_code == 404 or (r.status_code == 400 and re.search(r"model|not (found|supported)|no longer|deprecat", msg, re.I)
+                                    and not re.search(r"api key", msg, re.I)):
+            last = EngineError("Gemini", r.status_code, f"{m}: {msg}"); continue  # retired or unknown model: try the next one
         if r.status_code == 429:
-            raise RateLimited("Gemini limit: " + r.text[:200])
+            if ("limit: 0" in msg or "free_tier" in msg.lower()) and len(tried) < len(order):
+                last = RateLimited("Gemini limit: " + msg[:200]); continue  # this model has no free quota, another may
+            raise RateLimited("Gemini limit: " + msg[:200])
+        if r.status_code in (400, 401, 403) and re.search(r"api key|permission|unauthori|invalid", msg, re.I):
+            raise EngineError("Gemini", r.status_code, "Google didn't accept this key: " + msg[:200]
+                              + " Make a new key at aistudio.google.com/apikey and paste it again.")
         if r.status_code >= 400:
-            raise EngineError("Gemini", r.status_code, r.text)
+            last = EngineError("Gemini", r.status_code, f"{m}: {msg}")
+            if r.status_code >= 500:
+                continue
+            raise last
         try:
-            parts = r.json()["candidates"][0]["content"]["parts"]
+            cand = r.json()["candidates"][0]
+            parts = cand["content"]["parts"]
         except (KeyError, IndexError, ValueError):
             raise BadReply("Gemini · " + m, r.text, f"status {r.status_code}")
-        return "".join(p.get("text", "") for p in parts), m
-    raise last or EngineError("Gemini", 0, "no model")
+        return "".join(p.get("text", "") for p in parts if not p.get("thought")), m
+    raise last or EngineError("Gemini", 0, "no Gemini model is available for this key")
 
 
 # OpenAI-style free APIs that work as a backup

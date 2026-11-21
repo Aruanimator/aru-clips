@@ -28,7 +28,14 @@ If setup stops, run Install.bat again; it continues where it left off. Details a
 - **Captions:** Bold, Clean, Punchy, word-by-word highlight, any font (add your own .ttf/.otf, or install free fonts in one click). Bangla captions switch to a Bangla font by themselves, with an optional Banglish mode.
 - **Effects:** slow zoom, punch-in, progress bar, flash, bouncy captions, film grain, vignette. **SFX** on the hook title, numbers or every caption.
 - **Formats:** 9:16, 1:1, 4:5, 3:4, 16:9.
-- **Branding:** your logo and `aru_animator` in a corner of every clip (bottom-left by default).
+- **Watermark:** set on the New project page: the Aru Animator logo, your own image and/or text, or none, with position, size and opacity.
+- **Pause, resume, start over, delete:** pause a project, close the app, and resume later from where it stopped (downloads, transcripts and picks are kept). Live projects reconnect and carry on.
+- **Watch in the app and clip by hand:** the source video or the live stream plays in the project; drag on the bar under it (or press I and O) and press Clip it, or clip the last 30/60/90 seconds of a live stream. Auto clipping keeps running.
+- **Clip board:** every project's clips on one page, waiting ones first, with one-click render or skip.
+- **Streamers:** add the streamers you clip; the app checks every 3 minutes and starts a live project when one goes live.
+- **Ratings that teach it:** rate clips with stars. After 6 ratings, scoring learns which rubric parts and how much the audience signal matter to you, and the AI sees examples of clips you loved and disliked.
+- **Publishing:** connect YouTube, Instagram, TikTok and X with your own free developer apps, then publish one clip, the selected ones, everything above a score, or auto-publish new clips above a score.
+- **Junk skipping:** raids, ad breaks, BRB/starting-soon screens, sub alerts, sponsor reads and dead air are left out.
 - **Facebook / Instagram pack:** copies the clips with English and Bangla captions and an .srt subtitle file for each.
 
 Clips are saved to `Videos\AruClips` (change it in Settings). Each project folder keeps the source, so **Edit** opens the clip editor: move or resize each screen, change the layout, format, timing, caption text, fonts, colours, effects and text placement, then re-render.

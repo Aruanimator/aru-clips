@@ -2,7 +2,7 @@
 import math, random, re, shutil, subprocess, tempfile, pathlib
 import numpy as np
 import cv2
-from config import ASSETS, USER_FONTS, USER_SFX, FILLERS, FFMPEG, popen, run
+from config import DATA, ASSETS, USER_FONTS, USER_SFX, FILLERS, FFMPEG, popen, run
 import media
 
 FPS = 30
@@ -14,6 +14,7 @@ BANGLA_FONT = "Hind Siliguri Bold"
 NUM_WORDS = re.compile(r"\d|%|\b(percent|hundred|thousand|million|billion|trillion|lakh|crore|half|double|triple)\b|[০-৯]", re.I)
 YUNET = ASSETS / "models" / "face_detection_yunet_2023mar.onnx"
 LOGO = ASSETS / "brand" / "logo.png"
+WATERMARKS = DATA / "watermarks"
 HANDLE = "aru_animator"
 
 
@@ -875,12 +876,16 @@ class Effects:
 
 
 class Watermark:
-    def __init__(self, W, H, pos, logo_path=None):
-        p = pathlib.Path(logo_path or LOGO)
-        self.ok = p.exists()
-        self.size = int(min(W, H) * 0.075)
+    def __init__(self, W, H, pos, logo_path=None, size_pct=None, opacity=None):
+        """logo_path: the Aru Animator logo by default, a custom image, or "" for text only."""
+        p = pathlib.Path(LOGO if logo_path is None else logo_path) if logo_path != "" else None
+        self.ok = bool(p and p.is_file())
+        self.size = int(min(W, H) * min(0.2, max(0.03, float(size_pct or 7.5) / 100)))
+        self.opacity = min(1.0, max(0.1, float(opacity if opacity is not None else 0.92)))
         m = int(min(W, H) * 0.045)
         self.pos = pos or "bl"
+        bottom = H - m - self.size - int(H * 0.01)
+        self.x, self.y, self.w = (m if self.pos in ("tl", "bl") else W - m), (m if self.pos in ("tl", "tr") else bottom), 0
         if not self.ok:
             return
         img = cv2.imread(str(p), cv2.IMREAD_UNCHANGED)
@@ -893,7 +898,7 @@ class Watermark:
         s = self.size / img.shape[0]
         img = cv2.resize(img, (max(2, int(img.shape[1] * s)), self.size), interpolation=cv2.INTER_AREA)
         self.rgb = img[..., :3].astype(np.float32)
-        self.a = (img[..., 3:4].astype(np.float32) / 255) * 0.92
+        self.a = (img[..., 3:4].astype(np.float32) / 255) * self.opacity
         w = img.shape[1]
         bottom = H - m - self.size - int(H * 0.01)
         self.x = m if self.pos in ("tl", "bl") else W - m - w
@@ -1030,7 +1035,9 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
     if wm.get("on"):
         x = wm["x"] + wm["w"] + int(wm["size"] * 0.18) if wm["pos"] in ("tl", "bl") else wm["x"] - int(wm["size"] * 0.18)
         al = 4 if wm["pos"] in ("tl", "bl") else 6
-        L.append(f"Dialogue: 2,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})}}{HANDLE}")
+        aa = f"{int((1 - wm.get('opacity', 0.92)) * 255):02X}"
+        L.append(f"Dialogue: 2,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})\\1a&H{aa}&\\3a&H{aa}&}}"
+                 + _esc(wm.get("text", HANDLE)))
     pathlib.Path(path).write_text("\n".join(L) + "\n", "utf-8-sig")
 
 
@@ -1295,15 +1302,27 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
         comp.cam_track = cam_track(samples, rate, cam)
     fx = Effects(look.get("effects"), W, H, dur, hi)
     brand = opts.get("brand") or {}
-    wm = Watermark(W, H, brand.get("pos", "bl")) if brand.get("watermark", True) else None
+    mode = brand.get("mode") or ("aru" if brand.get("watermark", True) else "off")
+    wm_text = ""
+    if mode == "custom":
+        img = brand.get("image") or ""
+        wm = Watermark(W, H, brand.get("pos", "bl"), str(WATERMARKS / img) if img else "", brand.get("size"), brand.get("opacity"))
+        wm_text = str(brand.get("text") or "").strip()[:40]
+        if not wm.ok and not wm_text:
+            wm = None
+    elif mode == "aru":
+        wm = Watermark(W, H, brand.get("pos", "bl"), None, brand.get("size"), brand.get("opacity"))
+        wm_text = HANDLE
+    else:
+        wm = None
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="aru_"))
     try:
         (tmp / "fonts").mkdir()
         for f in font_files():
             shutil.copy(f, tmp / "fonts" / f.name)
-        wmi = {"on": bool(wm and wm.ok), "pos": wm.pos if wm else "bl", "x": getattr(wm, "x", 0), "y": getattr(wm, "y", 0),
-               "w": getattr(wm, "w", 0), "size": getattr(wm, "size", 80)}
+        wmi = {"on": bool(wm and wm_text), "pos": wm.pos if wm else "bl", "x": getattr(wm, "x", 0), "y": getattr(wm, "y", 0),
+               "w": getattr(wm, "w", 0), "size": getattr(wm, "size", 80), "text": wm_text, "opacity": getattr(wm, "opacity", 0.92)}
         build_ass(tmp / "clip.ass", W, H, dur, groups, style, look, float(opts.get("caption_position", 0.7)),
                   opts.get("title", ""), opts.get("title_overlay", True), lang, wmi)
         has_sfx = build_sfx(tmp / "sfx.wav", dur, groups, opts.get("sfx"), opts.get("title_overlay", True))
