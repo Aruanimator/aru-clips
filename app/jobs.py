@@ -299,12 +299,31 @@ def _pads(o):
 
 def run_job(j):
     j.set(status="queued", stage="Waiting for the previous project to finish…")
-    while not _pipe_lock.acquire(timeout=1):
-        _check(j)
+    o = j.get("opts") or {}
+    if not _pipe_lock.acquire(blocking=False):
+        # another project is working: download this one meanwhile, so it's ready when that one finishes
+        if o.get("url") and not o.get("file") and not (j.get("steps") or {}).get("source") and not j.get("chunked") and not _go_chunked(j, o):
+            _predownload(j, o)
+        j.set(status="queued", stage="Downloaded. Waiting for the previous project to finish…" if (j.get("steps") or {}).get("source")
+              else "Waiting for the previous project to finish…")
+        while not _pipe_lock.acquire(timeout=1):
+            _check(j)
     try:
         _run_job(j)
     finally:
         _pipe_lock.release()
+
+
+def _predownload(j, o):
+    j.stage("Downloading while the previous project finishes…", 0.01)
+    src, info = media.download(o["url"], j.dir, j.log, lambda f: (_check(j), j.set(progress=round(0.01 + 0.29 * f, 3))),
+                               want_chat=(o.get("source_type") or "video") == "stream")
+    j.set(title=info.get("title") or j.get("title"))
+    if info.get("heatmap"):
+        (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
+    with j.lock:
+        j.data.setdefault("steps", {})["source"] = True; j.save()
+    j.log("Downloaded")
 
 
 def _run_job(j):

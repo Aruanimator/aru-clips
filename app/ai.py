@@ -246,7 +246,7 @@ def _gemini_chat(messages, key, model=None, json_mode=True):
     sys_txt = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     body = {"contents": [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]}
                          for m in messages if m["role"] != "system"] or [{"role": "user", "parts": [{"text": sys_txt}]}],
-            "generationConfig": {"temperature": 0.2}}
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}
     if sys_txt and any(m["role"] != "system" for m in messages):
         body["systemInstruction"] = {"parts": [{"text": sys_txt}]}
     if json_mode:

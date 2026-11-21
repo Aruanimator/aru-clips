@@ -2093,6 +2093,8 @@ function loadScript(src){return new Promise((ok,no)=>{if(document.querySelector(
 async function pvEmbed(p){const e=p.embed,box=$('#pvEmbedIn');box.innerHTML='<div id="pvEmbedEl"></div>';
   $('#pv').style.display='none';$('#pvEmbed').style.display='';const st=pvS;
   try{
+    await (e.site==='youtube'?(window.YT&&YT.Player?null:new Promise((ok,no)=>{window.onYouTubeIframeAPIReady=ok;loadScript('https://www.youtube.com/iframe_api').catch(no);setTimeout(()=>no(new Error('timeout')),15000)})):loadScript('https://player.twitch.tv/js/embed/v1.js'));
+    if(pvS!==st)return;  // switched project or player while the script loaded
     if(e.site==='youtube'){
       if(!(window.YT&&YT.Player)){await new Promise((ok,no)=>{window.onYouTubeIframeAPIReady=ok;loadScript('https://www.youtube.com/iframe_api').catch(no);setTimeout(()=>no(new Error('timeout')),15000)})}
       const pl=new YT.Player('pvEmbedEl',{videoId:e.id,playerVars:{playsinline:1,rel:0,modestbranding:1,origin:location.origin},
@@ -2110,9 +2112,8 @@ function pvLoad(jid,p){
   let keepT=0;try{keepT=pvS&&pvS.jid===jid?pvCur():0}catch(e){}
   if(pvS&&pvS.hls)pvS.hls.destroy();if(pvS&&pvS.api){try{pvS.api.stop()}catch(e){}}
   const v=$('#pv');pvS={jid,kind:p.kind,url:p.url,sel:null,hls:null,clips:[],api:null};
-  $('#pvEmbed').style.display='none';$('#pvEmbedIn').innerHTML='';v.style.display='';
+  $('#pvEmbed').style.display='none';$('#pvEmbedIn').innerHTML='';v.style.display='';$('#pvHours').style.display='none';
   if(p.kind==='embed'){pvEmbed(p);if(!pvS.ticking){pvS.ticking=true;pvTick()}return}
-  $('#pvHours').style.display='none';
   if(p.kind==='chunks'){pvS.hours=p.hours;const keep=pvHourSel[jid];const h=p.hours.find(x=>x.name===keep)||p.hours[0];
     pvPickHour(h.name,keepT&&keep===h.name?keepT:0);if(!pvS.ticking){pvS.ticking=true;pvTick()}return}
   if(keepT&&p.kind==='video')v.addEventListener('loadedmetadata',()=>{v.currentTime=keepT},{once:true});
