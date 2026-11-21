@@ -505,13 +505,49 @@ def run_live(j):
         cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-copyts"] + args + maps + [
             "-c", "copy", "-f", "segment"] + (
             ["-segment_times", ",".join(f"{first + k * chunk:.0f}" for k in range(400))] if first else ["-segment_time", str(chunk)]) + [
-            "-segment_start_number", str(start_no), str(ldir / "seg_%03d.ts")] + maps + [
-            # a second copy as short HLS pieces: the in-app player watches it and manual clips are cut from it
-            "-c", "copy", "-f", "hls", "-hls_time", "4", "-hls_list_size", "1800",
-            "-hls_flags", "delete_segments+append_list+program_date_time+omit_endlist" + ("+discont_start" if start_no else ""),
-            "-hls_segment_filename", str(ldir / "hls" / "h_%06d.ts"), str(ldir / "hls" / "live.m3u8")]
+            "-segment_start_number", str(start_no), str(ldir / "seg_%03d.ts")]
         rec_state["proc"] = popen(cmd, stdin=subprocess.PIPE, stderr=ylog)
+        rec_state["started"] = rec_state["grew"] = time.time()
+        rec_state["size"] = -1
         return True
+
+    prev = {"proc": None, "file": None}
+
+    def preview_tick():
+        """The in-app player's feed: a separate ffmpeg follows the part being recorded and cuts it into short HLS
+        pieces. It's kept apart from the recorder so the recording never depends on it."""
+        segs = sorted(ldir.glob("seg_*.ts"))
+        if not segs:
+            return
+        cur, pp = segs[-1], prev["proc"]
+        if prev["file"] == cur.name:
+            return  # following this part already (or it ended: a new part brings it back)
+        if pp and pp.poll() is None:
+            pp.terminate()
+        pl = ldir / "hls" / "live.m3u8"
+        cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-follow", "1", "-rw_timeout", "20000000", "-i", str(cur),
+               "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "hls", "-hls_time", "4", "-hls_list_size", "1800",
+               "-hls_flags", "delete_segments+append_list+program_date_time+omit_endlist" + ("+discont_start" if pl.exists() else ""),
+               "-hls_segment_filename", str(ldir / "hls" / "h_%06d.ts"), str(pl)]
+        try:
+            prev["proc"] = popen(cmd, stdin=subprocess.DEVNULL, stderr=ylog)
+            prev["file"] = cur.name
+        except Exception as e:
+            ylog.write(("preview: " + str(e) + "\n").encode("utf-8", "ignore")); ylog.flush()
+
+    def stall_check():
+        """A connection can hang without ffmpeg quitting. If the recording stops growing for a minute, restart it."""
+        p = rec_state.get("proc")
+        if not p or p.poll() is not None:
+            return
+        segs = sorted(ldir.glob("seg_*.ts"))
+        size = sum(q.stat().st_size for q in segs[-2:]) if segs else 0
+        if size != rec_state.get("size"):
+            rec_state["size"], rec_state["grew"] = size, time.time()
+        elif time.time() - rec_state.get("grew", time.time()) > 60:
+            j.log("The stream stopped sending video for a minute, reconnecting…")
+            ylog.write(b"stalled: no data for 60 s, restarting\n"); ylog.flush()
+            p.kill()
 
     def stop_recorder():
         p = rec_state["proc"]
@@ -532,6 +568,19 @@ def run_live(j):
                 first_seen.setdefault(q.stem, time.time())
             time.sleep(1)
     threading.Thread(target=watch, daemon=True).start()
+
+    def keeper():  # own thread: processing a part takes minutes and mustn't freeze the player or the watchdog
+        while not watch_stop.is_set():
+            try:
+                preview_tick()
+                stall_check()
+            except Exception as e:
+                try:
+                    ylog.write(("keeper: " + str(e) + "\n").encode("utf-8", "ignore")); ylog.flush()
+                except Exception:
+                    pass
+            watch_stop.wait(2)
+    threading.Thread(target=keeper, daemon=True).start()
     carry = list(st.get("carry", []))  # parts cut short by a dropped connection or a pause, joined with the rest of their batch
     resume_left = None
     if st:  # resuming: the part that was recording when it paused waits for the rest of its batch
@@ -787,6 +836,7 @@ def run_live(j):
                         j.log(f"Part {name} failed: {str(e)[:300]}")
             if time.time() - last_status > 5:
                 status(True); last_status = time.time()
+
             if j.stop.is_set() or (total_min and time.time() - t0 >= total_min * 60):
                 break
             p = rec_state["proc"]
@@ -822,6 +872,9 @@ def run_live(j):
             time.sleep(2)
     finally:
         stop_recorder()
+        if prev["proc"] and prev["proc"].poll() is None:
+            time.sleep(1)  # let it pick up the last seconds
+            prev["proc"].terminate()
         rec_state["end"] = time.time()
         ylog.close()
         watch_stop.set()

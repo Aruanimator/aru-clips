@@ -131,7 +131,7 @@ def ffmpeg_inputs(inputs):
             args += ["-headers", hdr]
         if ".m3u8" in u or "m3u8" in u.split("?")[0]:
             args += ["-live_start_index", "-1"]
-        args += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10", "-i", u]
+        args += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10", "-rw_timeout", "30000000", "-i", u]
     if len(inputs) == 1:
         maps = ["-map", "0:v:0?", "-map", "0:a:0?"]
     else:
