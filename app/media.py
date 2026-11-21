@@ -158,18 +158,23 @@ def ffmpeg_inputs(inputs):
     return args, maps
 
 
-def download(url, dest_dir, log, progress, want_chat=False):
-    """Downloads to dest_dir/source.mp4. Returns (path, info)."""
+AUDIO_FIRST = "ba[ext=m4a]+bv*[height<=1080][ext=mp4]/ba+bv*[height<=1080]/b[height<=1080]/ba+bv*/b"
+
+
+def download(url, dest_dir, log, progress, want_chat=False, fmt=None, on_hook=None):
+    """Downloads to dest_dir/source.mp4. Returns (path, info). on_hook gets yt-dlp's raw progress (to cut hours early)."""
     import yt_dlp
     dest_dir = pathlib.Path(dest_dir)
 
     def hook(d):
+        if on_hook:
+            on_hook(d)
         if d.get("status") == "downloading":
             tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             if tot:
                 progress(min(1, d.get("downloaded_bytes", 0) / tot))
     opts = _ydl_opts({
-        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
+        "format": fmt or "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
         "merge_output_format": "mp4", "outtmpl": str(dest_dir / "source.%(ext)s"), "progress_hooks": [hook],
         "retries": 5, "fragment_retries": 10, "concurrent_fragment_downloads": 4,
     })
@@ -186,6 +191,57 @@ def download(url, dest_dir, log, progress, want_chat=False):
         log("Reading the chat replay…")
         chat_thread.join(timeout=240)
     return path, info
+
+
+def cut_section(inputs, a, b, out, progress=lambda f: None, tries=1):
+    """Copies a..b seconds out of one file (or a video file + an audio file) into out (.mp4).
+    Goes through Matroska so a short read still leaves a readable file. Returns the length it got."""
+    import subprocess
+    from config import popen
+    out = pathlib.Path(out)
+    dur = float(b) - float(a)
+    cmd = [FFMPEG, "-y", "-v", "error", "-nostats", "-progress", "pipe:1"]
+    for src, hdr in inputs:
+        if hdr:
+            cmd += ["-headers", hdr]
+        if str(src).startswith("http") and "m3u8" not in str(src):
+            cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "15"]
+        if str(src).startswith("http"):
+            cmd += ["-rw_timeout", "60000000"]
+        cmd += ["-ss", f"{float(a):.2f}", "-t", f"{dur:.2f}", "-i", str(src)]
+    cmd += ["-map", "0:v:0", "-map", ("1:a:0" if len(inputs) > 1 else "0:a:0?"), "-c", "copy"]
+    tmp = out.with_suffix(".part.mkv")
+    got, last_err = 0, ""
+    for attempt in range(tries):
+        errf = out.with_suffix(".log")
+        ef = open(errf, "w", encoding="utf-8", errors="ignore")
+        p = popen(cmd + [str(tmp)], stdout=subprocess.PIPE, stderr=ef, text=True)
+        try:
+            for line in p.stdout:
+                if line.startswith("out_time_us="):
+                    try:
+                        progress(min(0.99, int(line.split("=")[1]) / 1e6 / max(1.0, dur)))
+                    except ValueError:
+                        pass
+            p.wait()
+        except BaseException:
+            p.kill(); ef.close()
+            raise
+        ef.close()
+        last_err = errf.read_text("utf-8", "ignore")[-300:]
+        errf.unlink(missing_ok=True)
+        try:
+            got = ffprobe(tmp)["duration"] if tmp.exists() else 0
+        except Exception:
+            got = 0
+        if got >= dur * 0.97:
+            break
+    if not got:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("Couldn't cut this part of the video: " + (last_err.strip() or "no data"))
+    run([FFMPEG, "-y", "-v", "error", "-i", str(tmp), "-map", "0", "-c", "copy", "-movflags", "+faststart", str(out)], check=True)
+    tmp.unlink(missing_ok=True)
+    return got
 
 
 SECTION_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b"

@@ -445,8 +445,8 @@ def _slice_heat(heat, a, b):
 
 
 def _run_chunked(j, o, mode):
-    """Long videos: download hour 1, clip it while hour 2 downloads, and so on."""
-    import queue
+    """Long videos: the whole video downloads at full speed (sound first), and each hour is cut out and clipped
+    as soon as the download has passed it, while the rest keeps downloading."""
     total = float(j.get("chunked")["total"])
     cdir = j.dir / "chunks"; cdir.mkdir(exist_ok=True)
     plan = [(k, k * CHUNK, min(total, (k + 1) * CHUNK)) for k in range(int(math.ceil(total / CHUNK)))]
@@ -455,82 +455,112 @@ def _run_chunked(j, o, mode):
     state = j.data.setdefault("chunk_state", {})  # name -> "downloaded" | "done"
     n_want = int(o.get("num_clips", 6))
     mn, mx = float(o.get("min_len", 20)), float(o.get("max_len", 60))
-    # chat replays and the most-replayed graph cover the whole video; each hour gets its slice
-    extra = {}
-    def side():
-        try:
-            info = media.probe_url(o["url"])
-        except Exception:
-            info = {}
-        if "twitch.tv" in o["url"] and signals.twitch_video_id(o["url"]):
-            extra["chat"] = signals.twitch_replay_chat(o["url"], total, j.log)
-        elif mode == "stream" and "youtu" in o["url"]:
-            media._download_chat(o["url"], j.dir)
-            extra["chat"] = signals.yt_replay_chat(j.dir)
-    side_t = threading.Thread(target=side, daemon=True); side_t.start()
-    heat = None
+    extra, heat = {}, None
+    if "twitch.tv" in o["url"] and signals.twitch_video_id(o["url"]):
+        threading.Thread(target=lambda: extra.update(chat=signals.twitch_replay_chat(o["url"], total, j.log)), daemon=True).start()
     try:
-        import yt_dlp
-        hi = media.ydl_run(lambda y: y.extract_info(o["url"], download=False), {"skip_download": True})
-        heat = hi.get("heatmap")
+        heat = media.ydl_run(lambda y: y.extract_info(o["url"], download=False), {"skip_download": True}).get("heatmap")
     except Exception:
         pass
 
-    ready = queue.Queue()
-    gen = j._gen = object()  # a Resume starts a new downloader; the old one stops at its next progress update
+    # ---- the full-speed download, watched part by part
+    gen = j._gen = object()  # a Resume starts a new download; this one stops at its next progress update
+    dl = {"files": {}, "src": None, "err": None, "done": False}
+    full = next((p for p in j.dir.glob("source.*") if p.suffix.lower() in (".mp4", ".mkv", ".webm") and not re.search(r"\.f\d+\.", p.name)
+                 and (j.get("steps") or {}).get("source")), None)
 
-    def dl_prog(f, k):
+    def hook(d):
         if j.stop.is_set() or getattr(j, "_gen", None) is not gen:
             raise Paused()
-        j.set(dl={"k": k, "f": round(f, 3)})
+        inf = d.get("info_dict") or {}
+        fid = str(inf.get("format_id") or "x")
+        vc, ac = inf.get("vcodec") or "", inf.get("acodec") or ""
+        kind = "a" if vc in ("", "none") and ac not in ("", "none") else "v" if ac in ("", "none") and vc not in ("", "none") else "av"
+        r = dl["files"].setdefault(fid, {"kind": kind})
+        r.update(tmp=d.get("tmpfilename") or d.get("filename"), final=d.get("filename"), got=d.get("downloaded_bytes") or r.get("got", 0),
+                 tot=d.get("total_bytes") or d.get("total_bytes_estimate") or r.get("tot", 0), finished=d.get("status") == "finished")
 
-    def downloader():
-        for k, a, b in plan:
-            name = f"ch_{k:03d}"
-            f = cdir / (name + ".mp4")
-            if state.get(name) in ("downloaded", "done") and f.exists() and _playable(f):
-                ready.put((k, a, b)); continue
-            f.unlink(missing_ok=True)  # missing or broken: download it again
-            if j.stop.is_set():
-                break
-            try:
-                j.log(f"Downloading hour {k + 1} of {len(plan)} ({_hms(a)}–{_hms(b)})")
-                media.download_section(o["url"], a, b, cdir / (name + ".mp4"), lambda f, k=k: dl_prog(f, k))
-                with j.lock:
-                    state[name] = "downloaded"; j.save()
-                ready.put((k, a, b))
-            except Exception as e:
-                ready.put(e); return
-        ready.put(None)
-    threading.Thread(target=downloader, daemon=True).start()
+    def runner():
+        try:
+            src, info = media.download(o["url"], j.dir, j.log, lambda f: None, want_chat=mode == "stream" and "youtu" in o["url"],
+                                       fmt=media.AUDIO_FIRST, on_hook=hook)
+            dl["src"] = src
+            if info.get("heatmap") and not heat:
+                (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
+        except BaseException as e:
+            dl["err"] = e
+        finally:
+            dl["done"] = True
+    if full:
+        dl.update(src=full, done=True)
+    elif any(state.get(f"ch_{k:03d}") != "done" for k, _, _ in plan):
+        j.log("Downloading the whole video at full speed (sound first); each hour is clipped as soon as it's in")
+        threading.Thread(target=runner, daemon=True).start()
+
+    def frac():
+        v = next((r for r in dl["files"].values() if r["kind"] in ("v", "av")), None)
+        if not v:
+            return 0.0, None, None
+        f = 1.0 if v["finished"] else (v["got"] / v["tot"] if v.get("tot") else 0.0)
+        a = next((r for r in dl["files"].values() if r["kind"] == "a"), None)
+        return f, v, a
+
+    def inputs_for(b):
+        """Files to cut hour ending at b from, once the download has passed it."""
+        if dl["src"] and pathlib.Path(dl["src"]).exists():
+            return [(dl["src"], "")]
+        f, v, a = frac()
+        if not v or f < min(1.0, b / total + 0.03):
+            return None
+        vp = v["final"] if v["finished"] and os.path.exists(v["final"]) else v["tmp"]
+        if v["kind"] == "av":
+            return [(vp, "")]
+        if not a or not a["finished"] or not os.path.exists(a["final"]):
+            return None
+        return [(vp, ""), (a["final"], "")]
 
     base = {"crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
             "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True),
             "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence"))}
     done_n = sum(1 for v in state.values() if v == "done")
-    while True:
-        j.stage(f"Downloading hour {done_n + 1} of {len(plan)}…" if ready.empty() else "Working…",
-                0.02 + 0.96 * done_n / len(plan))
-        while True:
-            _check(j)
-            try:
-                item = ready.get(timeout=1)
-                break
-            except queue.Empty:
-                dl = j.get("dl") or {}
-                if dl:
-                    j.stage(f"Downloading hour {dl['k'] + 1} of {len(plan)}… {int(dl['f'] * 100)}%", 0.02 + 0.96 * done_n / len(plan))
-        if item is None:
-            break
-        if isinstance(item, Exception):
-            raise item
-        k, a, b = item
+    for k, a, b in plan:
         name = f"ch_{k:03d}"
         if state.get(name) == "done":
             continue
         src = cdir / (name + ".mp4")
-        dur = media.ffprobe(src)["duration"] or (b - a)
         p0 = 0.02 + 0.96 * done_n / len(plan)
+        if not (state.get(name) == "downloaded" and src.exists() and _playable(src)):
+            last = 0
+            while True:  # wait for the download to pass this hour, then cut it out
+                _check(j)
+                if dl["err"]:
+                    raise dl["err"]
+                ins = inputs_for(b)
+                if ins:
+                    try:
+                        got = media.cut_section(ins, a, b, src)
+                        if got >= (b - a) * 0.97 or dl["src"]:
+                            break
+                    except Exception as e:
+                        if dl["src"]:
+                            raise
+                        j.log(f"Hour {k + 1} isn't fully in yet, waiting a little longer ({str(e)[:80]})")
+                    src.unlink(missing_ok=True)
+                    time.sleep(15)
+                    continue
+                f, _, _ = frac()
+                if time.time() - last > 4:
+                    with j.lock:  # progress without filling the activity log
+                        j.data["stage"] = f"Downloading… {int(f * 100)}% of the video (hour {k + 1} is ready at {min(100, int(100 * (b / total + 0.03)))}%)"
+                        j.data["progress"] = round(p0, 4)
+                    last = time.time()
+                if dl["done"] and not dl["src"]:
+                    raise RuntimeError("The download stopped before this hour")
+                time.sleep(2)
+            with j.lock:
+                state[name] = "downloaded"; j.save()
+            j.log(f"Hour {k + 1} of {len(plan)} is in ({_hms(a)}–{_hms(b)})")
+        dur = media.ffprobe(src)["duration"] or (b - a)
         j.stage(f"Hour {k + 1} of {len(plan)}: transcribing…", p0)
         wav = cdir / (name + ".wav")
         trf = cdir / (name + ".json")
@@ -545,7 +575,8 @@ def _run_chunked(j, o, mode):
         _check(j)
         loud = media.loudness(wav)
         wav.unlink(missing_ok=True)
-        side_t.join(timeout=1 if k else 60)  # give the chat replay a head start on the first hour
+        if not extra.get("chat") and mode == "stream" and "youtu" in o["url"]:
+            extra["chat"] = signals.yt_replay_chat(j.dir) or None
         chat = [(t - a, x) for t, x in (extra.get("chat") or []) if a <= t < a + dur]
         j.stage(f"Hour {k + 1} of {len(plan)}: finding the best moments…", p0 + 0.45 / len(plan))
         ok = None
@@ -579,8 +610,14 @@ def _run_chunked(j, o, mode):
         with j.lock:
             state[name] = "done"; j.save()
         done_n += 1
+    t_end = time.time() + 600
+    while not dl["done"] and time.time() < t_end:  # let the download finish joining sound and picture
+        _check(j); time.sleep(2)
+    if dl["src"]:
+        with j.lock:
+            j.data.setdefault("steps", {})["source"] = True; j.save()
     n = len([c for c in j.data["clips"] if c.get("file")])
-    j.set(status="done", stage=f"Done! {n} clips saved.", progress=1, dl=None)
+    j.set(status="done", stage=f"Done! {n} clips saved.", progress=1)
 
 
 def _playable(f):
