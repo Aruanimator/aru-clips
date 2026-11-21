@@ -409,7 +409,7 @@ def _run_job(j):
 def _render_plan(j, clips):
     """Renders the picked moments that aren't rendered yet (all of them, or what's left after a pause)."""
     have = {c["n"] for c in j.data.get("clips", []) if c.get("file")}
-    gone = {c["n"] for c in j.data.get("clips", [])} - have  # half-rendered when paused: render again
+    gone = {c["n"] for c in j.data.get("clips", []) if not c.get("manual")} - have  # half-rendered when paused: render again
     with j.lock:
         j.data["clips"] = [c for c in j.data["clips"] if c["n"] not in gone]
     todo = [c for c in clips if c["n"] not in have]
@@ -498,7 +498,11 @@ def run_live(j):
         if info.get("live_status") not in (None, "is_live") and not info.get("is_live"):
             ylog.write(b"not live\n"); ylog.flush()
             raise RuntimeError("This link isn't live right now. Use Past stream for a finished broadcast.")
+        pipe = rec_state.get("pipe") or any(x in o["url"] for x in media.PIPE_SITES)
         args, maps = media.ffmpeg_inputs(inputs)
+        if pipe:  # yt-dlp fetches the stream and hands it to ffmpeg, which only saves it
+            ytp = popen(media.ytdlp_pipe_cmd(o["url"]), stdout=subprocess.PIPE, stderr=ylog)
+            args, maps = ["-i", "pipe:0"], ["-map", "0:v:0?", "-map", "0:a:0?"]
         nums = [int(m.group(1)) for q in ldir.glob("seg_*") if (m := re.match(r"seg_(\d+)\.(ts|mp4)$", q.name))]
         start_no = max(nums) + 1 if nums else 0
         # -copyts keeps the stream's own clock, so separate video and audio feeds stay in sync
@@ -506,7 +510,14 @@ def run_live(j):
             "-c", "copy", "-f", "segment"] + (
             ["-segment_times", ",".join(f"{first + k * chunk:.0f}" for k in range(400))] if first else ["-segment_time", str(chunk)]) + [
             "-segment_start_number", str(start_no), str(ldir / "seg_%03d.ts")]
-        rec_state["proc"] = popen(cmd, stdin=subprocess.PIPE, stderr=ylog)
+        if pipe:
+            rec_state["proc"] = popen(cmd, stdin=ytp.stdout, stderr=ylog)
+            ytp.stdout.close()  # ffmpeg owns the pipe now
+            rec_state["yt"] = ytp
+        else:
+            rec_state["proc"] = popen(cmd, stdin=subprocess.PIPE, stderr=ylog)
+            rec_state["yt"] = None
+        rec_state["pipe_on"] = pipe
         rec_state["started"] = rec_state["grew"] = time.time()
         rec_state["size"] = -1
         return True
@@ -547,15 +558,26 @@ def run_live(j):
         elif time.time() - rec_state.get("grew", time.time()) > 60:
             j.log("The stream stopped sending video for a minute, reconnecting…")
             ylog.write(b"stalled: no data for 60 s, restarting\n"); ylog.flush()
+            if not rec_state.get("pipe_on"):
+                rec_state["pipe"] = True  # ffmpeg alone stalled on this stream: let yt-dlp fetch it from now on
+                j.log("Switching to yt-dlp to fetch this stream")
+            yt = rec_state.get("yt")
+            if yt and yt.poll() is None:
+                yt.kill()
             p.kill()
 
     def stop_recorder():
-        p = rec_state["proc"]
+        p, yt = rec_state["proc"], rec_state.get("yt")
+        if yt and yt.poll() is None:
+            yt.kill()  # ffmpeg sees the end of the pipe and closes the last part cleanly
         if not p or p.poll() is not None:
             return
         try:
-            p.stdin.write(b"q"); p.stdin.flush()  # lets ffmpeg close the last part cleanly
-            p.wait(timeout=20)
+            if yt:
+                p.wait(timeout=20)
+            else:
+                p.stdin.write(b"q"); p.stdin.flush()  # lets ffmpeg close the last part cleanly
+                p.wait(timeout=20)
         except Exception:
             p.kill()
 
@@ -1121,6 +1143,14 @@ def manual_clip(j, body):
                 c.update(seg=name, start=0.0, end=round(d, 2), duration=round(d, 1))
                 words = tr.get("words", [])
             else:
+                # marked while the video was still downloading: wait for it
+                while not (j.get("steps") or {}).get("transcript"):
+                    if j.get("status") in ("error", "done") or JOBS.get(j.id) is None:
+                        raise RuntimeError("the video didn't finish downloading")
+                    with j.lock:
+                        c["stage"] = "Waiting for the download to finish"
+                    time.sleep(3)
+                c.pop("stage", None)
                 words, _ = _words_for(j, c)
             text = " ".join(w["w"] for w in words if c["start"] - 0.2 <= w["s"] <= c["end"])
             c.update(picker.describe(text, j.get("lang", "en"), o.get("content", "general"), o.get("game", "any"), j.log))

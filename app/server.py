@@ -390,9 +390,25 @@ def player(jid: str):
                 "window": jobs.live_window(j), "recording": bool((j.get("live") or {}).get("recording")), "clips": clips}
     src = jobs._src_for(j, {})
     ok = bool(src and src.exists() and ((j.get("steps") or {}).get("source") or j.get("status") == "done"))
+    emb = None if ok else _embed(o.get("url") or "")
+    if emb:  # play it from YouTube / Twitch while the download runs
+        return {"kind": "embed", "url": "embed:" + emb["site"] + ":" + emb["id"], "embed": emb, "clips": clips,
+                "why": "", "note": "Playing from " + ("YouTube" if emb["site"] == "youtube" else "Twitch")
+                + " while it downloads. Moments you mark are clipped as soon as the download finishes."}
     why = "" if ok else ("The video shows up here once it has downloaded." if busy or j.get("status") == "paused"
                          else "The source video isn't in this project any more.")
     return {"kind": "video", "url": f"/media/{j.id}/{src.name}" if ok else "", "why": why, "clips": clips}
+
+
+def _embed(url):
+    import re as _re
+    m = _re.search(r"(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})", url)
+    if m:
+        return {"site": "youtube", "id": m.group(1)}
+    m = _re.search(r"twitch\.tv/videos/(\d+)", url)
+    if m:
+        return {"site": "twitch", "id": m.group(1)}
+    return None
 
 
 @app.post("/api/jobs/{jid}/manual")

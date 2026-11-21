@@ -122,6 +122,25 @@ def resolve_live(url):
     return inputs, info
 
 
+PIPE_SITES = ("twitch.tv", "kick.com")
+
+
+def ytdlp_pipe_cmd(url):
+    """yt-dlp command that writes the live stream to stdout. Used for sites where ffmpeg alone stalls (Twitch, Kick):
+    yt-dlp's own HLS downloader copes with their ads and playlist quirks."""
+    from config import PYEXE
+    s = load_settings()
+    cmd = [PYEXE, "-m", "yt_dlp", "-q", "--no-warnings", "--no-part", "--hls-use-mpegts",
+           "-f", "b[height<=1080]/best", "-o", "-"]
+    if FFMPEG:
+        cmd += ["--ffmpeg-location", str(pathlib.Path(FFMPEG).parent)]
+    if os.name == "nt":
+        cmd += ["--compat-options", "no-certifi"]
+    if s.get("cookies_browser") and not _no_cookies["on"]:
+        cmd += ["--cookies-from-browser", s["cookies_browser"]]
+    return cmd + [url]
+
+
 def ffmpeg_inputs(inputs):
     """ffmpeg arguments for the resolved live inputs, with reconnects for flaky streams."""
     args, maps = [], []
