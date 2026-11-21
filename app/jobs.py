@@ -487,8 +487,10 @@ def _run_chunked(j, o, mode):
     def downloader():
         for k, a, b in plan:
             name = f"ch_{k:03d}"
-            if state.get(name) in ("downloaded", "done") and (cdir / (name + ".mp4")).exists():
+            f = cdir / (name + ".mp4")
+            if state.get(name) in ("downloaded", "done") and f.exists() and _playable(f):
                 ready.put((k, a, b)); continue
+            f.unlink(missing_ok=True)  # missing or broken: download it again
             if j.stop.is_set():
                 break
             try:
@@ -579,6 +581,13 @@ def _run_chunked(j, o, mode):
         done_n += 1
     n = len([c for c in j.data["clips"] if c.get("file")])
     j.set(status="done", stage=f"Done! {n} clips saved.", progress=1, dl=None)
+
+
+def _playable(f):
+    try:
+        return (media.ffprobe(f)["duration"] or 0) > 1
+    except Exception:
+        return False
 
 
 def _hms(t):

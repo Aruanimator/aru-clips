@@ -188,33 +188,64 @@ def download(url, dest_dir, log, progress, want_chat=False):
     return path, info
 
 
-def download_section(url, a, b, out, progress=lambda f: None):
-    """Downloads only a..b seconds of a video to out (.mp4). Used to clip long videos an hour at a time."""
-    import yt_dlp
-    from yt_dlp.utils import download_range_func
-    out = pathlib.Path(out)
-    stem = out.with_suffix("")
+SECTION_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b"
 
-    def hook(d):
-        if d.get("status") == "downloading":
-            tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            if tot:
-                progress(min(1, d.get("downloaded_bytes", 0) / tot))
-            elif d.get("elapsed") and b > a:  # ffmpeg-based range downloads only report time
-                progress(min(0.99, float(d.get("elapsed", 0)) / max(30.0, (b - a) / 8)))
-    opts = _ydl_opts({
-        "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
-        "merge_output_format": "mp4", "outtmpl": str(stem) + ".%(ext)s", "progress_hooks": [hook],
-        "download_ranges": download_range_func(None, [(float(a), float(b))]), "force_keyframes_at_cuts": False,
-        "retries": 5, "fragment_retries": 10, "concurrent_fragment_downloads": 4,
-    })
-    ydl_run(lambda y: y.extract_info(url, download=True), {k: v for k, v in opts.items() if k not in ("cookiesfrombrowser",)})
-    got = next((p for p in out.parent.glob(stem.name + ".*") if p.suffix in (".mp4", ".mkv", ".webm", ".mov")
-                and not re.search(r"\.f\d+\.", p.name)), None)
-    if not got:
-        raise RuntimeError("This part of the video didn't download")
-    if got != out:
-        os.replace(got, out)
+
+def download_section(url, a, b, out, progress=lambda f: None):
+    """Downloads only a..b seconds of a video to out (.mp4), for clipping long videos an hour at a time.
+    ffmpeg reads the stream URLs itself (with reconnects) into Matroska, which stays readable even if it's cut short,
+    then it's turned into an mp4."""
+    import subprocess
+    from config import popen
+    out = pathlib.Path(out)
+    info = ydl_run(lambda y: y.extract_info(url, download=False), {"format": SECTION_FORMAT, "skip_download": True})
+    if info.get("_type") == "playlist" and info.get("entries"):
+        info = next(e for e in info["entries"] if e)
+    fmts = [f for f in (info.get("requested_formats") or [info]) if f.get("url")]
+    if not fmts:
+        raise RuntimeError("No downloadable stream was found for this video")
+    dur = float(b) - float(a)
+    cmd = [FFMPEG, "-y", "-v", "error", "-nostats", "-progress", "pipe:1"]
+    for f in fmts:
+        h = f.get("http_headers") or info.get("http_headers") or {}
+        hdr = "".join(f"{k}: {v}\r\n" for k, v in h.items() if k.lower() in ("user-agent", "referer", "origin", "cookie"))
+        if hdr:
+            cmd += ["-headers", hdr]
+        if not ("m3u8" in f["url"] or f.get("protocol", "").startswith("m3u8")):
+            cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "15"]
+        cmd += ["-rw_timeout", "60000000", "-ss", f"{float(a):.2f}", "-t", f"{dur:.2f}", "-i", f["url"]]
+    cmd += ["-map", "0:v:0", "-map", ("1:a:0" if len(fmts) > 1 else "0:a:0?"), "-c", "copy"]
+    tmp = out.with_suffix(".part.mkv")
+    last_err = ""
+    for attempt in range(2):
+        errf = out.with_suffix(".log")
+        ef = open(errf, "w", encoding="utf-8", errors="ignore")
+        p = popen(cmd + [str(tmp)], stdout=subprocess.PIPE, stderr=ef, text=True)
+        try:
+            for line in p.stdout:
+                if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
+                    try:
+                        progress(min(0.99, int(line.split("=")[1]) / 1e6 / max(1.0, dur)))
+                    except ValueError:
+                        pass
+            p.wait()
+        except BaseException:  # paused or stopped: end ffmpeg and pass it on
+            p.kill()
+            ef.close()
+            raise
+        ef.close()
+        last_err = errf.read_text("utf-8", "ignore")[-300:]
+        errf.unlink(missing_ok=True)
+        got = ffprobe(tmp)["duration"] if tmp.exists() else 0
+        if got >= dur * 0.97 or (got > 60 and attempt == 1):
+            break
+    else:
+        got = 0
+    if not tmp.exists() or not got:
+        raise RuntimeError("This part of the video didn't download: " + (last_err.strip() or "no data"))
+    run([FFMPEG, "-y", "-v", "error", "-i", str(tmp), "-map", "0", "-c", "copy", "-movflags", "+faststart", str(out)], check=True)
+    tmp.unlink(missing_ok=True)
+    progress(1.0)
     return out
 
 
