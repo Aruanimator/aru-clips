@@ -624,6 +624,10 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .pvembed>div,.pvembed iframe{width:100%;height:100%;border:0;display:block}
 .pvhours{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px;color:var(--mute)}
 .pvhours small{margin-left:6px}
+.ppwhen{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 6px}.ppwhen>span{font-size:12.5px;font-weight:600}
+.ppwhen .inp{width:auto;flex:1;min-width:200px;color-scheme:dark}
+.pubs .sched{background:#C2F54C1a;color:var(--accent);cursor:pointer}.pubs .sched:hover{background:#4a2026;color:#ffb3b3}
+#ppWhen button{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -916,7 +920,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
     <div class="jobhead"><div><div class="side-h" style="padding:0 0 6px">Every project</div><h1 id="boardTitle">Clip board</h1></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
         <div class="seg" id="boardSeg"><button data-v="pending" class="on">Waiting</button><button data-v="all">All</button><button data-v="unpub">Not published</button></div>
-        <div class="seg" id="pubSeg" style="display:none"><button data-v="queue" class="on">In queue</button><button data-v="done">Published</button><button data-v="failed">Failed</button></div>
+        <div class="seg" id="pubSeg" style="display:none"><button data-v="queue" class="on">In queue</button><button data-v="sched">Scheduled</button><button data-v="done">Published</button><button data-v="failed">Failed</button></div>
         <button class="btn" id="pubAccBtn" style="display:none" onclick="openPub()">Accounts &amp; auto-publish</button>
       </div></div>
     <p class="hint" id="boardHint"></p>
@@ -966,6 +970,9 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <small class="hint" id="ppX"></small>
     </div>
     <div id="ppPlats" class="ppplats"></div>
+    <div class="ppwhen"><span>When</span><div class="seg" id="ppWhen"><button data-v="now" class="on">Now</button><button data-v="later">Schedule</button></div>
+      <input type="datetime-local" class="inp" id="ppAt" style="display:none"></div>
+    <small class="hint" id="ppAtHint" style="display:none">Aru Clips needs to be open at that time. If it's closed then, the post goes up as soon as you open it.</small>
     <div class="mrow"><button class="btn" onclick="$('#pubPick').classList.remove('on')">Cancel</button><button class="btn pri" id="ppGo">Publish</button></div>
   </div>
 </div>
@@ -2169,6 +2176,7 @@ function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)r
   return `<div class="pubs">${k.map(x=>{const s=p[x];
     if(s.state==='done')return `<a class="done" href="${esc(s.url||'#')}" target="_blank" title="Open it">✓ On ${PN[x]} ↗</a>`;
     if(s.state==='error')return `<span class="error" title="${esc(s.error||'')}\n\nClick to try again" onclick="${retry}">✕ ${PN[x]} failed · retry</span>`;
+    if(s.state==='scheduled')return `<span class="sched" title="Click to cancel" onclick="unschedule('${jid||current}',${c.n},'${x}')">⏰ ${PN[x]} · ${whenTxt(s.when)}</span>`;
     if(s.state==='uploading'&&s.stage==='processing')return `<span class="uploading"><b class="pspin"></b>${PN[x]} is processing it</span>`;
     if(s.state==='uploading')return `<span class="uploading pprog" style="--p:${s.pct||0}%">↑ ${PN[x]} ${s.pct||0}%</span>`;
     return `<span class="queued">Waiting · ${PN[x]}</span>`}).join('')}</div>`
@@ -2193,8 +2201,12 @@ async function pickPlatforms(title,hint,go,minVal,clip){const p=await pubInfo().
   if(clip){const po=clip.post||{};$('#ppT').value=po.title||clip.title||'';$('#ppC').value=po.caption!=null?po.caption:(clip.caption||'');
     $('#ppH').value=(po.hashtags||clip.hashtags||[]).join(' ');ppCount()}
   $('#ppPlats').innerHTML=PL.map(k=>`<label class="${p[k].connected?'':'dis'}"><input type="checkbox" value="${k}" ${p[k].connected?'checked':'disabled'}> ${p[k].name}${p[k].user?' · '+esc(p[k].user):''}${p[k].connected?'':' (not connected)'}</label>`).join('');
+  segSet($('#ppWhen'),'now');$('#ppAt').style.display='none';$('#ppAtHint').style.display='none';$('#ppGo').textContent='Publish';
+  const d=new Date(Date.now()+3600e3);d.setMinutes(0,0,0);$('#ppAt').value=new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,16);
+  $('#ppAt').min=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);
   $('#ppGo').onclick=async()=>{const pl=[...$('#ppPlats').querySelectorAll('input:checked')].map(i=>i.value);if(!pl.length)return toast('Pick a platform');
-    $('#pubPick').classList.remove('on');await go(pl,minVal!=null?+$('#ppMin').value||0:null,clip?{title:$('#ppT').value,caption:$('#ppC').value,hashtags:$('#ppH').value}:null)};
+    let when=null;if(segVal($('#ppWhen'))==='later'){const t=new Date($('#ppAt').value).getTime();if(!t||t<Date.now()+60e3)return toast('Pick a time at least a minute from now');when=Math.round(t/1000)}
+    pubWhen=when;$('#pubPick').classList.remove('on');await go(pl,minVal!=null?+$('#ppMin').value||0:null,clip?{title:$('#ppT').value,caption:$('#ppC').value,hashtags:$('#ppH').value}:null)};
   $('#pubPick').classList.add('on')}
 function publishOne(n,jid){jid=jid||current;const c=jid===current?clipBy(n):boardClips.find(x=>x.jid===jid&&x.n===n);
   pickPlatforms('Publish clip','Edit the post text if you like. The video itself stays the same.',(pl,_,post)=>pubSend(jid,{ns:[n],platforms:pl,post}),null,c)}
@@ -2203,7 +2215,12 @@ function publishSel(){const ns=($('#clips')._clips||[]).filter(c=>selClips.has(c
 function publishRated(){const m=+(localStorage.getItem('aru_pub_min')||80);
   pickPlatforms('Publish by score','Every rendered clip in this project that clears the bar. Clips already on a platform are skipped.',(pl,min)=>{
     try{localStorage.setItem('aru_pub_min',min)}catch(e){}$('#pubMinV').textContent=min;return pubSend(current,{min_score:min,platforms:pl})},m)}
-async function pubSend(jid,body){try{const r=await api(`/api/jobs/${jid}/publish`,{method:'POST',body:JSON.stringify(body)});toast(`Publishing ${r.queued} clip${r.queued===1?'':'s'}… Follow it in the Publishing tab.`);setTimeout(loadBadges,800);
+let pubWhen=null;
+seg($('#ppWhen'),v=>{const l=v==='later';$('#ppAt').style.display=l?'':'none';$('#ppAtHint').style.display=l?'':'none';$('#ppGo').textContent=l?'Schedule':'Publish'});
+const whenTxt=t=>new Date(t*1000).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+async function unschedule(jid,n,p){if(!confirm(`Cancel the scheduled ${PN[p]} post?`))return;try{await api(`/api/jobs/${jid}/clips/${n}/unschedule`,{method:'POST',body:JSON.stringify({platform:p})});toast('Scheduled post cancelled')}catch(e){toast(e.message)}jid===current?refresh(true):loadBoard()}
+async function pubSend(jid,body){if(pubWhen){body.when=pubWhen;pubWhen=null}try{const r=await api(`/api/jobs/${jid}/publish`,{method:'POST',body:JSON.stringify(body)});
+    toast(body.when?`Scheduled ${r.queued} clip${r.queued===1?'':'s'} for ${whenTxt(body.when)}`:`Publishing ${r.queued} clip${r.queued===1?'':'s'}… Follow it in the Publishing tab.`);setTimeout(loadBadges,800);
     if(jid===current){clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}else loadBoard()}catch(e){toast(e.message)}}
 
 // ======================================================================= publishing accounts
@@ -2273,10 +2290,11 @@ async function loadBoard(){boardClips=await api('/api/board').catch(()=>boardCli
   if(f==='queue')cs=cs.filter(c=>pubStates(c).some(s=>s==='queued'||s==='uploading'));
   if(f==='done')cs=cs.filter(c=>pubStates(c).includes('done')).sort((a,b)=>Math.max(0,...Object.values(b.published).map(p=>p.at||0))-Math.max(0,...Object.values(a.published).map(p=>p.at||0)));
   if(f==='failed')cs=cs.filter(c=>pubStates(c).includes('error'));
+  if(f==='sched')cs=cs.filter(c=>pubStates(c).includes('scheduled')).sort((a,b)=>Math.min(...Object.values(a.published).map(p=>p.when||9e9))-Math.min(...Object.values(b.published).map(p=>p.when||9e9)));
   const np=boardClips.filter(c=>c.pending).length;$('#boardBadge').textContent=np||'';
   const nq=boardClips.filter(c=>pubStates(c).some(s=>s==='queued'||s==='uploading')).length;$('#pubBadge').textContent=nq||'';
   if($('#boardView').style.display==='none')return;
-  const empty={pending:'Nothing is waiting for approval.',queue:'Nothing is uploading right now.',done:'Nothing published yet.',failed:'No failed uploads.'};
+  const empty={sched:'Nothing is scheduled. Use Publish → Schedule on a clip.',pending:'Nothing is waiting for approval.',queue:'Nothing is uploading right now.',done:'Nothing published yet.',failed:'No failed uploads.'};
   $('#boardHint').textContent=f==='pending'?(np?`${np} clip${np===1?' is':'s are'} waiting for you across all projects. Render or skip them in one click.`:'')
     :f==='queue'?(cs.length?`${cs.length} clip${cs.length===1?'':'s'} uploading or waiting. They go up one at a time; you can keep using the app.`:'')
     :f==='failed'?(cs.length?'Click a red chip to try again. Hover it to see why it failed.':''):`${cs.length} clip${cs.length===1?'':'s'}`;

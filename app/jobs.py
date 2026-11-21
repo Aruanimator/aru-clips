@@ -1191,8 +1191,12 @@ def set_post_text(j, n, meta):
         j.save()
 
 
-def publish_clips(j, ns, platforms, why=None):
-    """Queues rendered clips for upload. Returns how many were queued; why (a list) collects reasons for skipped ones."""
+def publish_clips(j, ns, platforms, why=None, when=None):
+    """Queues rendered clips for upload (or schedules them for `when`, a Unix time).
+    Returns how many were queued; why (a list) collects reasons for skipped ones."""
+    when = float(when) if when else None
+    if when and when <= time.time() + 30:
+        when = None  # "later" that's already now
     platforms = [p for p in platforms if p in publish.PLATFORMS]
     if not platforms:
         raise ValueError("Pick at least one platform")
@@ -1214,6 +1218,14 @@ def publish_clips(j, ns, platforms, why=None):
                 why.append(f"clip {n} is already {'uploading' if st == 'uploading' else 'waiting'} for {publish.NAMES[p]}")
         if not todo:
             continue
+        if when:  # the scheduler picks it up at that time
+            with j.lock:
+                pub = c.setdefault("published", {})
+                for p in todo:
+                    pub[p] = {"state": "scheduled", "when": int(when)}
+                j.save()
+            k += 1
+            continue
         with j.lock:
             pub = c.setdefault("published", {})
             for p in todo:
@@ -1230,6 +1242,47 @@ def publish_clips(j, ns, platforms, why=None):
         publish.enqueue({"path": str(output_dir() / c["file"]), "meta": meta, "platforms": todo, "on_update": upd, "log": j.log})
         k += 1
     return k
+
+
+def unschedule(j, n, platform):
+    c = j.clip(int(n))
+    if not c:
+        return False
+    with j.lock:
+        pub = c.get("published") or {}
+        if (pub.get(platform) or {}).get("state") == "scheduled":
+            pub.pop(platform, None); j.save()
+            return True
+    return False
+
+
+_sched = {"t": None}
+
+
+def start_scheduler():
+    """Posts scheduled clips when their time comes (if the app was closed then, as soon as it opens again)."""
+    if _sched["t"] and _sched["t"].is_alive():
+        return
+
+    def loop():
+        while True:
+            try:
+                load_all()
+                now = time.time()
+                for j in list(JOBS.values()):
+                    for c in list(j.data.get("clips", [])):
+                        due = [p for p, st in (c.get("published") or {}).items() if st.get("state") == "scheduled" and st.get("when", 0) <= now]
+                        if due:
+                            with j.lock:
+                                for p in due:
+                                    c["published"].pop(p, None)
+                            j.log(f"Scheduled time reached: publishing clip {c['n']} to " + ", ".join(publish.NAMES[p] for p in due))
+                            publish_clips(j, [c["n"]], due)
+            except Exception as e:
+                print("scheduler:", e)
+            time.sleep(20)
+    _sched["t"] = threading.Thread(target=loop, daemon=True)
+    _sched["t"].start()
 
 
 def auto_publish(j, c):

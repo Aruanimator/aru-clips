@@ -565,6 +565,13 @@ def pub_disconnect(platform: str):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{jid}/clips/{n}/unschedule")
+def unschedule(jid: str, n: int, body: dict = Body(...)):
+    if not jobs.unschedule(job_or_404(jid), n, body.get("platform", "")):
+        raise HTTPException(400, "That post isn't scheduled any more")
+    return {"ok": True}
+
+
 @app.post("/api/publish/auto")
 def pub_auto(body: dict = Body(...)):
     publish.set_auto(body.get("on"), body.get("min_score", 80), body.get("platforms") or [])
@@ -582,7 +589,7 @@ def pub_clips(jid: str, body: dict = Body(...)):
         ns = [c["n"] for c in j.data.get("clips", []) if c.get("file") and not c.get("pending") and int(c.get("score") or 0) >= mn]
     why = []
     try:
-        k = jobs.publish_clips(j, ns, body.get("platforms") or [], why)
+        k = jobs.publish_clips(j, ns, body.get("platforms") or [], why, body.get("when"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not k:
@@ -818,6 +825,7 @@ if __name__ == "__main__":
         print("  ffmpeg was not found. Run Install.bat again (it downloads ffmpeg into the tools folder).")
     if "--no-browser" not in sys.argv:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+    jobs.start_scheduler()
     watch.start(jobs.create, lambda jid: bool(jobs.get(jid)) and jobs.get(jid).get("status") in ("running", "queued", "paused"))
     print(f"\n  Aru Clips is running at http://127.0.0.1:{port}\n  Keep this window open while you use the app.\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
