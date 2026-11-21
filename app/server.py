@@ -324,6 +324,16 @@ def delete_clips(jid: str, body: dict = Body(...)):
     return {"deleted": jobs.delete_clips(job_or_404(jid), body.get("ns") or [])}
 
 
+# ---- uninstall (the launcher asks what to remove and does it)
+@app.post("/api/uninstall")
+def uninstall_app():
+    exe = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "AruClips" / "AruClips.exe"
+    if not IS_WIN or not exe.is_file():
+        raise HTTPException(400, "The uninstaller is part of the Windows app (Aru Clips.exe). Delete the folder you run this copy from instead.")
+    subprocess.Popen([str(exe), "--uninstall"], cwd=str(exe.parent), creationflags=0x00000008 | 0x00000200)  # detached, own group
+    return {"ok": True}
+
+
 # ---- project lifecycle
 @app.delete("/api/jobs/{jid}")
 def delete_job(jid: str):

@@ -44,6 +44,10 @@ Clips are saved to `Videos\AruClips` (change it in Settings). Each project folde
 
 Replace `app\assets\brand\logo.png` with the real Aru Animator logo (a square PNG with a transparent background works best). It's used in the app and on every clip.
 
+## Uninstall
+
+Settings → **Uninstall Aru Clips…**, the tray icon → **Uninstall…**, or Windows Settings → Apps → Aru Clips. It removes the app and everything it installed (its own Python, the AI packages, ffmpeg, pip's download cache, shortcuts) and asks separately before deleting your settings/models and your clips.
+
 ## Private or age-restricted links
 
 Public videos need no sign-in, so leave **Browser login** on None. For private or age-restricted videos, pick the browser you're signed in to; Firefox works best, because Chrome and Edge on Windows often block other apps from reading their sign-in. If the sign-in can't be read, the app tries again without it.

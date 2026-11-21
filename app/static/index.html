@@ -988,7 +988,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <div class="hint" id="tasteInfo"></div>
     </div>
     <div class="f field"><label>Save clips to</label><input class="inp" id="sOut"></div>
-    <div class="mrow"><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn pri" onclick="saveSettings()">Save</button></div>
+    <div class="mrow"><button class="btn danger" style="margin-right:auto" onclick="uninstallApp()">Uninstall Aru Clips…</button><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn pri" onclick="saveSettings()">Save</button></div>
   </div>
 </div>
 
@@ -2224,6 +2224,7 @@ async function tasteInfo(){try{const t=await api('/api/taste');const w=t.weights
   $('#tasteInfo').innerHTML=(t.n?`${t.n} rating${t.n===1?'':'s'} so far. `:'Rate clips with the stars on each card. ')+
     (t.learning?`Learned weights: ${parts}. Audience signals count ${Math.round(t.blend*100)}%. `:`Learning starts after ${t.min} ratings. Now: ${parts}, audience ${Math.round(t.blend*100)}%. `)+
     (t.n?'<a href="#" onclick="event.preventDefault();tasteReset()">Forget my ratings</a>':'')}catch(e){}}
+async function uninstallApp(){try{await api('/api/uninstall',{method:'POST'});closeSettings();toast('Follow the Uninstall Aru Clips window on your screen')}catch(e){toast(e.message)}}
 async function tasteReset(){if(!confirm('Forget all your ratings and go back to the default scoring?'))return;await api('/api/taste/reset',{method:'POST'});tasteInfo()}
 
 // ---- v2 interactions

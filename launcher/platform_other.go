@@ -46,3 +46,7 @@ func runUI() {
 	onExit()
 	os.Exit(0)
 }
+
+func registerUninstaller(string)          {}
+func uninstall()                          { fmt.Println("UNINSTALL", base, gb(dirSize(base)), clipsFolder(), gb(projectsSize(clipsFolder()))) }
+func finishUninstall(dir string, n int64) { fmt.Println("FINISH", dir, gb(n)) }

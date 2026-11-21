@@ -460,7 +460,7 @@ func setup() error {
 	// 4. packages
 	if r, _ := os.ReadFile(filepath.Join(rtDir, "req.sha")); string(r) != reqHash() {
 		step(3, "This is the slow part: a few minutes")
-		args := []string{"-m", "pip", "install", "-r", filepath.Join(base, "requirements.txt"), "--prefer-binary", "--no-warn-script-location", "--progress-bar", "off"}
+		args := []string{"-m", "pip", "install", "-r", filepath.Join(base, "requirements.txt"), "--prefer-binary", "--no-warn-script-location", "--progress-bar", "off", "--no-cache-dir"}
 		err := runLogged(pyExe, args...)
 		if err != nil {
 			logf("pip failed once, retrying: %v", err)
@@ -529,7 +529,7 @@ func updateYtDlp() {
 	if b, _ := os.ReadFile(mark); string(b) == today {
 		return
 	}
-	cmd := hidden(exec.Command(pyExe, "-m", "pip", "install", "-U", "yt-dlp[default]", "-q", "--no-warn-script-location"))
+	cmd := hidden(exec.Command(pyExe, "-m", "pip", "install", "-U", "yt-dlp[default]", "-q", "--no-warn-script-location", "--no-cache-dir"))
 	cmd.Env = append(os.Environ(), "PIP_DISABLE_PIP_VERSION_CHECK=1")
 	done := make(chan error, 1)
 	if cmd.Start() != nil {
@@ -605,6 +605,7 @@ func installSelf() {
 	if t := copyToInstall(); t != "" {
 		target = t
 	}
+	registerUninstaller(target)
 	mark := filepath.Join(base, "shortcuts.done")
 	if exists(mark) {
 		return
@@ -782,6 +783,17 @@ func main() {
 	rtDir = filepath.Join(base, "runtime")
 	pyExe, pywExe = pythonPaths(rtDir)
 	os.MkdirAll(base, 0o755)
+
+	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+		uninstall()
+		return
+	}
+	if len(os.Args) > 3 && os.Args[1] == "--uninstall-finish" {
+		var n int64
+		fmt.Sscan(os.Args[3], &n)
+		finishUninstall(os.Args[2], n)
+		return
+	}
 
 	if relaunchInstalled() {
 		return // the installed copy takes it from here

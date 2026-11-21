@@ -142,6 +142,7 @@ func onReady() {
 	mOpen := systray.AddMenuItem("Open Aru Clips", "Open the app in your browser")
 	mFolder := systray.AddMenuItem("Open clips folder", "Where your clips are saved")
 	systray.AddSeparator()
+	mUninst := systray.AddMenuItem("Uninstall…", "Remove Aru Clips and everything it installed")
 	mQuit := systray.AddMenuItem("Quit", "Close Aru Clips")
 	systray.SetOnTapped(openApp)
 	go func() {
@@ -151,6 +152,10 @@ func onReady() {
 				openApp()
 			case <-mFolder.ClickedCh:
 				openURL(outputFolder())
+			case <-mUninst.ClickedCh:
+				if self, err := os.Executable(); err == nil {
+					exec.Command(self, "--uninstall").Start()
+				}
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
