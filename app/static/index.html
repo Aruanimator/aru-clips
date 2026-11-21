@@ -619,6 +619,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .pppost label{font-size:12.5px;font-weight:600;margin-top:6px;display:flex;justify-content:space-between;gap:8px}
 .pppost label small{font-weight:400;color:var(--mute)}
 .pppost textarea{resize:vertical;min-height:84px;font-family:inherit}
+.pvwhy{padding:14px 16px;border-radius:12px;background:#141D25;border:1px dashed var(--line);color:var(--mute);font-size:13px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -864,6 +865,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
     <div class="card playercard" id="playerCard" style="display:none">
       <div class="pvhead"><div class="sech" style="margin:0" id="pvLabel">Watch</div><span class="hint" id="pvNote"></span>
         <button class="btn sm" id="pvToggle" onclick="togglePlayer()">Hide</button></div>
+      <div class="pvwhy" id="pvWhy" style="display:none"></div>
       <div id="pvBody">
         <div class="pwrap"><video id="pv" playsinline controls></video><div class="pvlive" id="pvLive" style="display:none">● LIVE</div></div>
         <div class="mbar" id="mBar" title="Drag to select a moment, click to jump"><div class="mclips" id="mClips"></div><div class="msel" id="mSel"><i class="h l"></i><i class="h r"></i></div><div class="mhead" id="mHead"></div></div>
@@ -2056,8 +2058,10 @@ async function pvUpdate(j){
   if(pvS&&pvS.jid===j.id&&Date.now()-pvLast<4000)return;pvLast=Date.now();
   let p;try{p=await api(`/api/jobs/${j.id}/player`)}catch(e){return}
   if(j.id!==current)return;
-  if(!p.url){if(pvS)pvStop();return}
   $('#playerCard').style.display='';
+  if(!p.url){if(pvS)pvStop();$('#playerCard').style.display='';$('#pvBody').style.display='none';$('#pvToggle').style.display='none';
+    $('#pvWhy').style.display='';$('#pvWhy').textContent=p.why||'';$('#pvLabel').textContent=p.kind==='live'?'Watch live':'Source video';$('#pvNote').textContent='';return}
+  $('#pvWhy').style.display='none';$('#pvToggle').style.display='';$('#pvBody').style.display=pvHidden?'none':'';
   if(!pvS||pvS.jid!==j.id||pvS.url!==p.url)pvLoad(j.id,p);
   Object.assign(pvS,{clips:p.clips,recording:p.recording,window:p.window});
   $('#pvLabel').textContent=p.kind==='live'?(p.recording?'Watch live':'Recording'):'Source video';

@@ -379,13 +379,20 @@ def player(jid: str):
     o = j.get("opts") or {}
     clips = [{"n": c["n"], "start": c["start"], "end": c["end"], "seg": c.get("seg"), "title": c.get("title", ""),
               "pending": bool(c.get("pending")), "manual": bool(c.get("manual"))} for c in j.data.get("clips", [])]
+    busy = j.get("status") in ("running", "queued")
     if o.get("source_type") == "live":
         pl = j.dir / "live" / "hls" / "live.m3u8"
-        return {"kind": "live", "url": f"/media/{j.id}/live/hls/live.m3u8" if pl.exists() else "",
+        why = "" if pl.exists() else (
+            "The stream shows up here a few seconds after recording starts." if busy else
+            "This live project was recorded before the in-app player existed, so there's nothing to play here. "
+            "Press Start over, or start a new live project, to watch the stream in the app.")
+        return {"kind": "live", "url": f"/media/{j.id}/live/hls/live.m3u8" if pl.exists() else "", "why": why,
                 "window": jobs.live_window(j), "recording": bool((j.get("live") or {}).get("recording")), "clips": clips}
     src = jobs._src_for(j, {})
-    ok = src and src.exists() and (j.get("steps") or {}).get("source") or (src and j.get("status") == "done")
-    return {"kind": "video", "url": f"/media/{j.id}/{src.name}" if ok else "", "clips": clips}
+    ok = bool(src and src.exists() and ((j.get("steps") or {}).get("source") or j.get("status") == "done"))
+    why = "" if ok else ("The video shows up here once it has downloaded." if busy or j.get("status") == "paused"
+                         else "The source video isn't in this project any more.")
+    return {"kind": "video", "url": f"/media/{j.id}/{src.name}" if ok else "", "why": why, "clips": clips}
 
 
 @app.post("/api/jobs/{jid}/manual")
