@@ -2079,7 +2079,10 @@ async function pvEmbed(p){const e=p.embed,box=$('#pvEmbedIn');box.innerHTML='<di
   try{
     if(e.site==='youtube'){
       if(!(window.YT&&YT.Player)){await new Promise((ok,no)=>{window.onYouTubeIframeAPIReady=ok;loadScript('https://www.youtube.com/iframe_api').catch(no);setTimeout(()=>no(new Error('timeout')),15000)})}
-      const pl=new YT.Player('pvEmbedEl',{videoId:e.id,playerVars:{playsinline:1,rel:0,modestbranding:1}});
+      const pl=new YT.Player('pvEmbedEl',{videoId:e.id,playerVars:{playsinline:1,rel:0,modestbranding:1,origin:location.origin},
+        events:{onError:ev=>{if(pvS!==st)return;const why={2:'the link looks wrong',5:'the browser can\'t play it',100:'it\'s private or removed',101:'its owner turned off playing it outside YouTube',150:'its owner turned off playing it outside YouTube',153:'YouTube refused the player'}[ev.data]||'YouTube refused it';
+          $('#pvEmbedIn').innerHTML=`<div class="pvwhy" style="margin:0;height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;border:0">YouTube won't play this video in the app (${why}). It plays here as soon as the download finishes.<a class="btn" style="align-self:flex-start" href="https://www.youtube.com/watch?v=${e.id}" target="_blank">Watch on YouTube meanwhile ↗</a></div>`;
+          st.api=null;$('#pvNote').textContent='Waiting for the download to finish.'}}});
       st.api={cur:()=>pl.getCurrentTime?pl.getCurrentTime():0,dur:()=>pl.getDuration?pl.getDuration():0,seek:t=>pl.seekTo&&pl.seekTo(t,true),stop:()=>pl.destroy&&pl.destroy()};
     }else{
       await loadScript('https://player.twitch.tv/js/embed/v1.js');
