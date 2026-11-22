@@ -48,7 +48,9 @@ func clipsFolder() string {
 }
 
 // ownFolder: the clips folder is only removed whole when it's the app's own; otherwise just its project folders.
-func ownFolder(dir string) bool { return strings.Contains(strings.ToLower(filepath.Base(dir)), "aruclips") }
+func ownFolder(dir string) bool {
+	return strings.Contains(strings.ToLower(filepath.Base(dir)), "aruclips")
+}
 
 func projects(dir string) []string {
 	var out []string

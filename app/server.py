@@ -578,10 +578,23 @@ async def restore(file: UploadFile = File(...)):
 # ---- uninstall (the launcher asks what to remove and does it)
 @app.post("/api/uninstall")
 def uninstall_app():
+    if sys.platform == "darwin":
+        raise HTTPException(400, "On a Mac: quit Aru Clips, drag Aru Clips.app to the Trash, and delete the folder "
+                                 "~/Library/Application Support/AruClips (its Python and tools). Your clips are in ~/Movies/AruClips.")
     exe = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "AruClips" / "AruClips.exe"
     if not IS_WIN or not exe.is_file():
         raise HTTPException(400, "The uninstaller is part of the Windows app (Aru Clips.exe). Delete the folder you run this copy from instead.")
     subprocess.Popen([str(exe), "--uninstall"], cwd=str(exe.parent), creationflags=0x00000008 | 0x00000200)  # detached, own group
+    return {"ok": True}
+
+
+@app.post("/api/quit")
+def quit_app():
+    """Closes Aru Clips (on a Mac there's no tray icon to quit from). Running projects pause and resume next time."""
+    def bye():
+        time.sleep(0.6)
+        os._exit(0)
+    threading.Thread(target=bye, daemon=True).start()
     return {"ok": True}
 
 

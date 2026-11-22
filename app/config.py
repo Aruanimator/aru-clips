@@ -30,7 +30,7 @@ DEFAULTS = {
     "ollama_model": "qwen2.5:7b",
     "ollama_url": "http://localhost:11434",
     "local_whisper_model": "small",
-    "output_dir": str(HOME / "Videos" / "AruClips"),
+    "output_dir": str(HOME / ("Movies" if sys.platform == "darwin" else "Videos") / "AruClips"),
     "cookies_browser": "",
     "groq_extra_keys": "",
     "gemini_api_key": "",

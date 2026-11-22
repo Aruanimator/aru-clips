@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -494,6 +495,12 @@ func setup() error {
 
 	// 6. ffmpeg
 	ffBin := filepath.Join(base, "tools", "ffmpeg", "bin")
+	if runtime.GOOS == "darwin" && !exists(filepath.Join(ffBin, ffName)) {
+		step(5, "Video engine")
+		if err := fetchFFmpegMac(ffBin); err != nil {
+			return err
+		}
+	}
 	if !exists(filepath.Join(ffBin, ffName)) {
 		step(5, "Video engine")
 		zp := filepath.Join(base, "tools", "ffmpeg.zip")
@@ -522,6 +529,35 @@ func setup() error {
 	step(6, "Making sure everything loads")
 	if err := runLogged(pyExe, "-c", "import fastapi, uvicorn, numpy, cv2, yt_dlp, faster_whisper; print('self-test ok')"); err != nil {
 		return fmt.Errorf("the self-test failed: %v", err)
+	}
+	return nil
+}
+
+// fetchFFmpegMac gets ffmpeg and ffprobe for this Mac (Apple Silicon or Intel), each from its own zip
+func fetchFFmpegMac(ffBin string) error {
+	arch := map[string]string{"arm64": "arm64", "amd64": "amd64"}[runtime.GOARCH]
+	os.MkdirAll(ffBin, 0o755)
+	for _, tool := range []string{"ffmpeg", "ffprobe"} {
+		zp := filepath.Join(base, "tools", tool+".zip")
+		urls := []string{"https://ffmpeg.martin-riedl.de/redirect/latest/macos/" + arch + "/release/" + tool + ".zip"}
+		if arch == "amd64" {
+			urls = append(urls, "https://evermeet.cx/ffmpeg/getrelease/"+tool+"/zip")
+		}
+		if err := download(urls, zp, tool); err != nil {
+			return err
+		}
+		err := unzipFile(zp, ffBin, func(n string) string {
+			if filepath.Base(n) == tool {
+				return tool
+			}
+			return ""
+		})
+		os.Remove(zp)
+		if err != nil || !exists(filepath.Join(ffBin, tool)) {
+			return fmt.Errorf("could not unpack %s: %v", tool, err)
+		}
+		os.Chmod(filepath.Join(ffBin, tool), 0o755)
+		exec.Command("xattr", "-d", "com.apple.quarantine", filepath.Join(ffBin, tool)).Run()
 	}
 	return nil
 }
@@ -689,6 +725,10 @@ func startServer() error {
 		if alive(appURL) {
 			go func() {
 				err := <-exited
+				if err == nil && !quitting { // the app was told to quit (Settings → Quit): close quietly
+					quitApp()
+					return
+				}
 				if !quitting {
 					logf("app stopped: %v", err)
 					msgBox("Aru Clips stopped unexpectedly.\n\nDetails are in:\n" + filepath.Join(base, "server-output.txt") + "\n\nOpen Aru Clips again to restart it.")
@@ -779,7 +819,10 @@ func onExit() {
 
 func main() {
 	local := os.Getenv("LOCALAPPDATA")
-	if local == "" {
+	if runtime.GOOS == "darwin" { // macOS keeps app data in ~/Library/Application Support
+		home, _ := os.UserHomeDir()
+		local = filepath.Join(home, "Library", "Application Support")
+	} else if local == "" {
 		home, _ := os.UserHomeDir()
 		local = filepath.Join(home, "AppData", "Local")
 	}
@@ -799,7 +842,7 @@ func main() {
 		return
 	}
 
-	if relaunchInstalled() {
+	if runtime.GOOS != "darwin" && relaunchInstalled() { // on a Mac the app runs from Aru Clips.app where it is
 		return // the installed copy takes it from here
 	}
 
@@ -828,7 +871,9 @@ func main() {
 	st.Log = lp
 	logf("---- Aru Clips launcher, app %s, base %s", appVersion(), base)
 
-	installSelf()
+	if runtime.GOOS != "darwin" {
+		installSelf()
+	}
 	newJob()
 	runUI()
 }

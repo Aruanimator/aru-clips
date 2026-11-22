@@ -1184,6 +1184,7 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
     <div class="f field"><label>Help and backup</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="copyDiag()">Copy diagnostics</button>
+        <button class="btn" onclick="quitApp()">Quit Aru Clips</button>
         <button class="btn" onclick="openSpace()">Free up space</button>
         <a class="btn" id="bkLink" href="#" onclick="event.preventDefault();downloadBackup()">Back up ratings &amp; settings</a>
         <button class="btn" onclick="$('#rsIn').click()">Restore a backup</button><input type="file" id="rsIn" accept=".zip" hidden>
@@ -1598,6 +1599,7 @@ async function loadStatus(){
   $('#keyBanner').style.display=(h.groq_key||h.backup)?'none':'flex';
 }
 document.addEventListener('click',e=>{for(const id of ['supPop','bugPop']){const p=document.getElementById(id);if(p&&p.classList.contains('on')&&!p.contains(e.target)&&!e.target.closest('.support'))p.classList.remove('on')}});
+async function quitApp(){if(!confirm('Quit Aru Clips? Running projects stop and can be resumed next time you open it.'))return;try{await api('/api/quit',{method:'POST'})}catch(e){}document.body.innerHTML='<div style="margin:auto;color:#8A97A3;font:15px system-ui">Aru Clips is closed. Open it again from Applications or the Start menu.</div>'}
 async function openSettings(){
   const s=await api('/api/settings');settingsCache=s;
   segSet($('#engSeg'),s.engine);$('#sKey').value=s.groq_api_key;$('#sLlm').value=s.groq_llm_model;

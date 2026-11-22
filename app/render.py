@@ -1326,6 +1326,7 @@ def out_to_src(t, plan):
 # ======================================================================= encoders
 _enc_cache = {}
 GPU_ENCODERS = [  # tried in this order; each is test-encoded once before use
+    ("h264_videotoolbox", "Apple VideoToolbox", ["-c:v", "h264_videotoolbox", "-b:v", "12M", "-maxrate", "16M", "-bufsize", "24M"]),
     ("h264_nvenc", "NVIDIA", ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0"]),
     ("h264_qsv", "Intel Quick Sync", ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "22"]),
     ("h264_amf", "AMD", ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22"]),

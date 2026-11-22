@@ -30,7 +30,33 @@ def _dpapi(data, encrypt):
         ctypes.windll.kernel32.LocalFree(dst.pbData)
 
 
+KC = "keychain:"
+
+
+def _kc_set(text):
+    """macOS: keeps the value in the user's Keychain; the settings file only holds a reference."""
+    import hashlib, subprocess, sys
+    if sys.platform != "darwin":
+        return None
+    ref = hashlib.sha1(str(text).encode()).hexdigest()[:16]
+    r = subprocess.run(["security", "add-generic-password", "-U", "-a", "AruClips", "-s", "Aru Clips " + ref, "-w", str(text)],
+                       capture_output=True)
+    return KC + ref if r.returncode == 0 and _kc_get(KC + ref) == str(text) else None
+
+
+def _kc_get(ref):
+    import subprocess
+    r = subprocess.run(["security", "find-generic-password", "-a", "AruClips", "-s", "Aru Clips " + ref[len(KC):], "-w"],
+                       capture_output=True, text=True)
+    return r.stdout.rstrip("\n") if r.returncode == 0 else None
+
+
 def protect(text):
+    if text and os.name != "nt" and not str(text).startswith((PREFIX, KC)):
+        try:
+            return _kc_set(text) or text
+        except Exception:
+            return text
     if not text or os.name != "nt" or str(text).startswith(PREFIX):
         return text
     try:
@@ -43,6 +69,12 @@ def protect(text):
 
 
 def unprotect(text):
+    if isinstance(text, str) and text.startswith(KC):
+        try:
+            v = _kc_get(text)
+            return v if v is not None else ""
+        except Exception:
+            return ""
     if not isinstance(text, str) or not text.startswith(PREFIX):
         return text
     try:
