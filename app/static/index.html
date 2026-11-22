@@ -663,7 +663,9 @@ input[type=range]::-moz-range-track{background:#141D25!important;border-radius:4
 input[type=range]::-moz-range-progress{background:#C2F54C;height:5px;border-radius:4px}
 input[type=range]::-webkit-slider-thumb{width:16px!important;height:16px!important;margin-top:-5.5px!important;border-radius:50%!important;border:0!important;background:#E8EEF3!important;box-shadow:0 1px 3px #0008!important}
 input[type=range]::-moz-range-thumb{width:16px!important;height:16px!important;border-radius:50%!important;border:0!important;background:#E8EEF3!important}
-.follow{position:fixed;top:14px;right:22px;z-index:15;display:flex;align-items:center;gap:6px;padding:6px 8px 6px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:14px;color:var(--mute)}
+.topright{position:fixed;top:14px;right:22px;z-index:15;display:flex;align-items:stretch;gap:8px}
+.supbtn{display:flex;align-items:center;padding:0 16px;border-radius:8px;font-size:14px;font-weight:600;color:#141D25;background:var(--g-limelight);text-decoration:none}.supbtn:hover{filter:brightness(1.05)}
+.follow{display:flex;align-items:center;gap:6px;padding:6px 8px 6px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:14px;color:var(--mute)}
 .follow span{margin-right:4px}.follow a{display:grid;place-items:center;width:34px;height:34px;border-radius:6px;color:var(--text)}.follow a:hover{background:#263443;color:var(--accent)}
 a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text-decoration:none;color:var(--text);font-weight:500}a.topbanner:hover{color:var(--accent)}
 .freebtn{width:100%;text-align:left;padding:7px 10px;margin:0 0 10px;border-radius:6px;font-size:12.5px;color:var(--text);background:#1E2A35;border:1px solid var(--line);cursor:pointer}.freebtn:hover{background:#263443}.freebtn span{color:var(--mute)}
@@ -673,7 +675,7 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
 .clip .acts{flex-wrap:wrap}
 .support{width:100%;margin:2px 0 0;font-size:12px;color:var(--mute);background:none;border:0;padding:6px 10px;cursor:pointer;text-align:left;border-radius:6px}
 .support:hover{color:var(--text)}
-.suppop{position:fixed;left:16px;bottom:56px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
+.suppop{position:fixed;left:16px;bottom:84px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
 .suppop.on{display:block}.suppop p{margin:0 0 10px;font-size:12.5px;color:var(--mute)}
 .suppop a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;color:var(--text);text-decoration:none;font-size:13px}
 .suppop a:hover{background:#263443}
@@ -692,15 +694,23 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
     <button class="freebtn" onclick="askFreeAll()">Free up space <span id="freeSz"></span></button>
     <div class="status" id="status"></div>
     <button class="setbtn" onclick="openSettings()">⚙︎ Settings</button>
-    <button class="support" onclick="$('#supPop').classList.toggle('on')">Follow the creator</button>
+    <button class="support" onclick="$('#bugPop').classList.remove('on');$('#supPop').classList.toggle('on')">Follow the creator</button>
+    <button class="support" onclick="$('#supPop').classList.remove('on');$('#bugPop').classList.toggle('on')">Report a bug</button>
   </div>
 </aside>
+<div class="topright">
+<a class="supbtn" href="https://www.supportkori.com/asiful" target="_blank" rel="noopener" title="Support the creator">Support</a>
 <div class="follow" aria-label="Follow the creator">
   <span>Follow</span>
   <a href="https://www.instagram.com/aru_animator/" target="_blank" rel="noopener" title="Instagram · @aru_animator" aria-label="Instagram">
     <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"/></svg></a>
   <a href="https://www.linkedin.com/in/aruanimator/" target="_blank" rel="noopener" title="LinkedIn · aruanimator" aria-label="LinkedIn">
     <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor"><path d="M4.5 9h3v11h-3zM6 3.8a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM10 9h2.9v1.5h.04c.4-.76 1.4-1.6 2.9-1.6 3.1 0 3.7 2 3.7 4.7V20h-3v-5.6c0-1.3 0-3-1.85-3s-2.1 1.4-2.1 2.9V20H10z"/></svg></a>
+</div>
+</div>
+<div class="suppop" id="bugPop" role="dialog" aria-label="Report a bug">
+  <p>Message me on Instagram for bugs or more feature suggestions</p>
+  <a href="https://ig.me/m/aru_animator" target="_blank" rel="noopener">Message @aru_animator on Instagram ↗</a>
 </div>
 <div class="suppop" id="supPop" role="dialog" aria-label="Follow the creator">
   <p>Aru Clips is free. If it helps you, a follow means a lot.</p>
@@ -1587,7 +1597,7 @@ async function loadStatus(){
     (h.ffmpeg?'':row('bad','ffmpeg missing'));
   $('#keyBanner').style.display=(h.groq_key||h.backup)?'none':'flex';
 }
-document.addEventListener('click',e=>{const p=document.getElementById('supPop');if(p&&p.classList.contains('on')&&!p.contains(e.target)&&!e.target.closest('.support'))p.classList.remove('on')});
+document.addEventListener('click',e=>{for(const id of ['supPop','bugPop']){const p=document.getElementById(id);if(p&&p.classList.contains('on')&&!p.contains(e.target)&&!e.target.closest('.support'))p.classList.remove('on')}});
 async function openSettings(){
   const s=await api('/api/settings');settingsCache=s;
   segSet($('#engSeg'),s.engine);$('#sKey').value=s.groq_api_key;$('#sLlm').value=s.groq_llm_model;
