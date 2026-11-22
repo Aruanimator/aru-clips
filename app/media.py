@@ -231,7 +231,8 @@ def download_preview(url, dest_dir, log=print):
     dest_dir = pathlib.Path(dest_dir)
     opts = _ydl_opts({"format": "18/b[height<=360]/bv*[height<=360]+ba/wv*+ba/w", "merge_output_format": "mp4",
                       "outtmpl": str(dest_dir / "preview.%(ext)s"), "retries": 5, "fragment_retries": 10,
-                      "concurrent_fragment_downloads": 4, "quiet": True})
+                      "concurrent_fragment_downloads": 2, "quiet": True,
+                      "ratelimit": 2 * 1024 * 1024})  # leaves room for the sound and the picked moments
     try:
         ydl_run(lambda y: y.extract_info(url, download=True), {k: v for k, v in opts.items() if k not in ("cookiesfrombrowser",)})
     except Exception as e:

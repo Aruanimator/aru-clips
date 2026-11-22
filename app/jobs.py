@@ -373,9 +373,17 @@ def _preview(j, wait=0):
     return next((p for p in j.dir.glob("preview.*") if p.suffix in (".mp4", ".mkv", ".webm") and p.is_file()), None)
 
 
+PREVIEW_MAX = 3 * 3600  # longer videos play from YouTube/Twitch instead: their preview would be gigabytes
+
+
 def _start_preview(j, o):
     t = _prev_threads.get(j.id)
     if _preview(j) or (t and t.is_alive()):
+        return
+    total = float((j.get("chunked") or {}).get("total") or j.get("duration") or 0)
+    if total > PREVIEW_MAX:
+        j.log("Long video: no preview copy (it would be several GB and slow the downloads down). "
+              "The player plays it from YouTube or Twitch instead.")
         return
     t = threading.Thread(target=lambda: media.download_preview(o["url"], j.dir, j.log), daemon=True)
     _prev_threads[j.id] = t
@@ -404,6 +412,43 @@ def _parts_sound(j, o, mode, p0=0.01, p1=0.3):
         j.save()
     j.log(f"Got the sound ({snd.stat().st_size / 2 ** 20:.0f} MB). Only the picked moments get their full picture downloaded.")
     return snd
+
+
+def _pcm(path, a, d, sr=4000):
+    r = run([FFMPEG, "-v", "error", "-ss", f"{max(0.0, a):.3f}", "-t", f"{d:.3f}", "-i", str(path), "-vn", "-ac", "1", "-ar", str(sr),
+             "-f", "f32le", "-"])
+    return np.frombuffer(r.stdout or b"", np.float32)
+
+
+def _align(j, part, a0, sr=4000):
+    """Where the downloaded moment really starts. Cutting a stream without re-encoding begins at the keyframe before
+    the asked time, a second or more early, which would put every caption late. The moment's sound is matched against
+    the project's sound to find the exact start. Returns seconds to add to a0 (0 when it can't tell)."""
+    snd = _sound(j) or next((p for p in j.dir.glob("sound.*.part") if p.is_file()), None)
+    if not snd:
+        return 0.0
+    x = _pcm(part, 0, 20, sr)
+    lo = max(0.0, a0 - 8)
+    y = _pcm(snd, lo, 36, sr)
+    if len(x) < sr * 5 or len(y) < len(x):
+        return 0.0
+    x = (x - x.mean()) / (x.std() + 1e-9)
+    y = y - y.mean()
+    n = 1 << int(np.ceil(np.log2(len(x) + len(y))))
+    cc = np.fft.irfft(np.fft.rfft(y, n) * np.conj(np.fft.rfft(x, n)), n)[:len(y) - len(x) + 1]
+    win = np.sqrt(np.convolve(y ** 2, np.ones(len(x)), "valid"))[:len(cc)] + 1e-9
+    score = cc / win / np.sqrt(len(x))
+    lags = lo + np.arange(len(score)) / sr - a0
+    ok = (lags >= -6.0) & (lags <= 0.5)  # a copy-cut starts at most a few seconds early, never much later
+    if not ok.any():
+        return 0.0
+    score = np.where(ok, score, -1)
+    k = int(np.argmax(score))
+    far = np.abs(lags - lags[k]) > 0.25
+    second = float(score[far & ok].max()) if (far & ok).any() else -1
+    if score[k] < 0.5 or score[k] - second < 0.1:  # no clear, single match (silence, a steady tone): trust the asked time
+        return 0.0
+    return round(float(lags[k]), 3)
 
 
 def _to_part(j, c):
@@ -437,6 +482,14 @@ def _to_part(j, c):
                 j.log(f"Couldn't download just this moment ({str(err)[:120]}), so the whole video is downloaded instead")
                 media.download(o["url"], j.dir, j.log, lambda f: None)
         return c
+    try:
+        lag = _align(j, out, a0)
+    except Exception:
+        lag = 0.0
+    if abs(lag) > 0.04:
+        j.log(f"Clip {c['n']}: the downloaded moment starts {abs(lag):.2f}s {'earlier' if lag < 0 else 'later'} than asked; captions moved to match")
+    a0 += lag
+    b0 += lag
     trf = j.dir / "transcript.json"
     tr = json.loads(trf.read_text("utf-8")) if trf.exists() else {"words": [], "segments": [], "language": j.get("lang", "en")}
     cut = lambda xs: [dict(x, s=round(x["s"] - a0, 3), e=round(x["e"] - a0, 3)) for x in xs if x["e"] > a0 and x["s"] < b0]

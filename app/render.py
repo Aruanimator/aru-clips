@@ -140,7 +140,7 @@ def find_cam(samples, grays):
         line = ev[lo:hi, int(v)] if vertical else eh[int(v), lo:hi]
         return float(np.mean(line > 0.35))
 
-    found = None
+    found, cands = None, []
     for x0 in lefts:
         for x1 in rights:
             bw = x1 - x0
@@ -160,11 +160,12 @@ def find_cam(samples, grays):
                     if min(real) < 0.6:
                         continue
                     score = float(np.mean(real)) - 0.25 * bw * bh / (w * h)  # strong sides, and the tightest box
-                    if found is None or score > found[0]:
-                        found = (score, x0, y0, x1, y1)
-    if not found:
+                    cands.append((score, x0, y0, x1, y1))
+    if not cands:
         return None
-    sc, x0, y0, x1, y1 = found
+    # boxes with nearly as strong sides: take the smallest. An overlay stuck to the cam (a sub counter, a goal bar)
+    # has strong edges too, and the bigger box that includes it would put it in the clip
+    sc, x0, y0, x1, y1 = max(cands)
     return {"face": (fx, fy), "box": (x0 / w, y0 / h, (x1 + 1) / w, (y1 + 1) / h), "score": round(sc, 3)}
 
 
@@ -322,6 +323,15 @@ def detect_cam(src, start, dur, cache=None, n=30, log=print):
         cam = None
     if cam:
         cam = {"box": [float(v) for v in cam["box"]], "face": [float(v) for v in cam["face"]]}
+        for e in entries:  # the same cam found before, tighter: an overlay next to it crept into this box
+            ob = e.get("box")
+            if not ob or abs(e["face"][0] - cam["face"][0]) > 0.03 or abs(e["face"][1] - cam["face"][1]) > 0.04:
+                continue
+            nb = cam["box"]
+            inside = ob[0] >= nb[0] - 0.01 and ob[1] >= nb[1] - 0.01 and ob[2] <= nb[2] + 0.01 and ob[3] <= nb[3] + 0.01
+            if inside and (ob[2] - ob[0]) * (ob[3] - ob[1]) < 0.8 * (nb[2] - nb[0]) * (nb[3] - nb[1]):
+                cam["box"] = list(ob)
+                break
     if cache:
         entries.append({"a": round(a, 2), "b": round(b, 2), "box": cam["box"] if cam else None, "face": cam["face"] if cam else None})
         try:

@@ -400,6 +400,19 @@ class PartsOnly(unittest.TestCase):
         finally:
             media.download_sound, media.download_preview, media.download_section, media.download = old
 
+    def test_captions_line_up_with_an_early_cut(self):
+        d = TMP / "align"; d.mkdir(exist_ok=True)
+        snd = d / "sound.m4a"
+        subprocess.run([FF, "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=90:c=pink:a=0.4", "-af",
+                        "volume='0.15+0.85*abs(sin(t*1.7)*sin(t*0.43))':eval=frame", "-c:a", "aac", str(snd)], check=True)
+        part = d / "part.mp4"
+        subprocess.run([FF, "-v", "error", "-y", "-ss", "38.3", "-t", "30", "-i", str(snd), "-c:a", "aac", str(part)], check=True)
+
+        class J:
+            dir = d
+        lag = jobs._align(J(), part, 40.0)
+        self.assertAlmostEqual(lag, -1.7, delta=0.05)
+
     def test_long_video_in_pieces(self):
         fresh_out("out_parts_long")
         calls = {"section": 0}

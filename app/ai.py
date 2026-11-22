@@ -491,6 +491,8 @@ def chat_json(messages, log=None):
                     data = parse_json(txt)
                 except ValueError as e:
                     raise BadReply(label, txt, str(e))
+                if isinstance(data, list) and all(isinstance(x, dict) for x in data):
+                    data = {"clips": data}  # some models answer with the list itself instead of {"clips": [...]}
                 if not isinstance(data, dict):
                     raise BadReply(label, txt, "not a JSON object")
                 return data, label
