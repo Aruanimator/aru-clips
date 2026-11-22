@@ -197,12 +197,14 @@ def download(url, dest_dir, log, progress, want_chat=False, fmt=None, on_hook=No
     return path, info
 
 
-def download_sound(url, dest_dir, log, progress, want_chat=False):
+def download_sound(url, dest_dir, log, progress, want_chat=False, on_hook=None):
     """Only the sound of a video, to dest_dir/sound.<ext> (about 60-120 MB an hour). Enough to transcribe and pick
     moments; the picture of the picked moments is fetched later. Returns (path, info)."""
     dest_dir = pathlib.Path(dest_dir)
 
     def hook(d):
+        if on_hook:
+            on_hook(d)
         if d.get("status") == "downloading":
             tot = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             if tot:

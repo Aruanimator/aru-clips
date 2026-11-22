@@ -55,8 +55,8 @@ Run `python tests/run_tests.py` before every push (needs ffmpeg and the packages
 own test videos and fakes the AI, transcription, downloads and uploads, then checks: the local-server safety checks,
 post text, a video project with pause, resume, a marked clip, ratings, spaced and scheduled publishing, start over and
 delete, a long video clipped hour by hour, a live stream with the player feed, a marked clip, pause and resume, the
-daily YouTube analytics check, niche research, the picture check, downloading only the needed parts, and the music
-check. Run one suite with `python tests/run_tests.py PartsOnly`.
+daily YouTube analytics check, niche research, the picture check, downloading only the needed parts (also a long
+video clipped 3 hours of sound at a time), and the music check. Run one suite with `python tests/run_tests.py PartsOnly`.
 
 ## Still open
 

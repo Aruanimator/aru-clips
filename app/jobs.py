@@ -412,7 +412,8 @@ def _to_part(j, c):
     if c.get("chunk") or c.get("seg") or _src_for(j, {}):
         return c
     o = j.get("opts") or {}
-    total = float(j.get("duration") or 0) or media.ffprobe(_sound(j))["duration"]
+    snd = _sound(j)
+    total = float(j.get("duration") or (j.get("chunked") or {}).get("total") or 0) or (media.ffprobe(snd)["duration"] if snd else 0)
     a0, b0 = max(0.0, c["start"] - PART_PAD), min(total or c["end"] + PART_PAD, c["end"] + PART_PAD)
     name = f"part_{c['n']:03d}"
     (j.dir / "chunks").mkdir(exist_ok=True)
@@ -484,6 +485,10 @@ def _run_job(j):
         j.set(title=o.get("title") or up.stem)
         j.stage("Video ready", 0.3)
     elif _parts_ok(j, o):
+        if j.get("chunked") or _go_chunked(j, o, parts=True):  # long: clipped 3 hours at a time as the sound arrives
+            with j.lock:
+                j.data["parts"] = True; j.save()
+            return _run_chunked(j, o, mode)
         src = _parts_sound(j, o, mode)
     elif j.get("chunked") or _go_chunked(j, o):
         return _run_chunked(j, o, mode)
@@ -589,10 +594,11 @@ def _run_job(j):
 
 
 CHUNK = 3600          # long videos are downloaded and clipped an hour at a time
+PART_CHUNK = 3 * 3600  # with "only the needed parts": the sound is clipped 3 hours at a time as it arrives
 CHUNK_FROM = 75 * 60  # ...when they're longer than this
 
 
-def _go_chunked(j, o):
+def _go_chunked(j, o, parts=False):
     if not o.get("url") or o.get("file"):
         return False
     info = media.probe_url(o["url"])
@@ -606,8 +612,12 @@ def _go_chunked(j, o):
         j.set(title=info["title"])
     if info.get("uploader"):
         j.set(streamer=info["uploader"])
-    j.log(f"This video is {int(d // 3600)}h{int(d % 3600 // 60):02d}m long, so it's downloaded and clipped an hour at a time: "
-          "the first clips come after the first hour is in.")
+    if parts:
+        j.log(f"This video is {int(d // 3600)}h{int(d % 3600 // 60):02d}m long, so its sound is clipped 3 hours at a time as it "
+              "downloads: the first clips come once the first part is in.")
+    else:
+        j.log(f"This video is {int(d // 3600)}h{int(d % 3600 // 60):02d}m long, so it's downloaded and clipped an hour at a time: "
+              "the first clips come after the first hour is in.")
     return True
 
 
@@ -625,7 +635,11 @@ def _run_chunked(j, o, mode):
     as soon as the download has passed it, while the rest keeps downloading."""
     total = float(j.get("chunked")["total"])
     cdir = j.dir / "chunks"; cdir.mkdir(exist_ok=True)
-    plan = [(k, k * CHUNK, min(total, (k + 1) * CHUNK)) for k in range(int(math.ceil(total / CHUNK)))]
+    parts = bool(j.get("parts"))  # only the sound is downloaded; picked moments come later in full quality
+    size = PART_CHUNK if parts else CHUNK
+    plan = [(k, k * size, min(total, (k + 1) * size)) for k in range(int(math.ceil(total / size)))]
+    if parts:
+        _start_preview(j, o)
     if plan and plan[-1][2] - plan[-1][1] < 300 and len(plan) > 1:  # fold a short tail into the previous hour
         k, a, _ = plan[-2]; plan = plan[:-2] + [(k, a, total)]
     state = j.data.setdefault("chunk_state", {})  # name -> "downloaded" | "done"
@@ -644,6 +658,8 @@ def _run_chunked(j, o, mode):
     dl = {"files": {}, "src": None, "err": None, "done": False}
     full = next((p for p in j.dir.glob("source.*") if p.suffix.lower() in (".mp4", ".mkv", ".webm") and not re.search(r"\.f\d+\.", p.name)
                  and (j.get("steps") or {}).get("source")), None)
+    if parts:
+        full = _sound(j) if (j.get("steps") or {}).get("sound") else None
 
     def hook(d):
         if j.stop.is_set() or getattr(j, "_gen", None) is not gen:
@@ -658,8 +674,14 @@ def _run_chunked(j, o, mode):
 
     def runner():
         try:
-            src, info = media.download(o["url"], j.dir, j.log, lambda f: None, want_chat=mode == "stream" and "youtu" in o["url"],
-                                       fmt=media.AUDIO_FIRST, on_hook=hook)
+            if parts:
+                src, info = media.download_sound(o["url"], j.dir, j.log, lambda f: None, want_chat=mode == "stream" and "youtu" in o["url"],
+                                                 on_hook=hook)
+                with j.lock:
+                    j.data.setdefault("steps", {})["sound"] = True; j.save()
+            else:
+                src, info = media.download(o["url"], j.dir, j.log, lambda f: None, want_chat=mode == "stream" and "youtu" in o["url"],
+                                           fmt=media.AUDIO_FIRST, on_hook=hook)
             dl["src"] = src
             if info.get("heatmap") and not heat:
                 (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
@@ -669,11 +691,17 @@ def _run_chunked(j, o, mode):
             dl["done"] = True
     if full:
         dl.update(src=full, done=True)
-    elif any(state.get(f"ch_{k:03d}") != "done" for k, _, _ in plan):
-        j.log("Downloading the whole video at full speed (sound first); each hour is clipped as soon as it's in")
+    elif any(state.get(f"{'snd' if parts else 'ch'}_{k:03d}") != "done" for k, _, _ in plan):
+        j.log("Downloading the sound; every 3 hours of it is clipped as soon as it's in, and only the picked moments get their full picture"
+              if parts else "Downloading the whole video at full speed (sound first); each hour is clipped as soon as it's in")
         threading.Thread(target=runner, daemon=True).start()
 
     def frac():
+        if parts:  # only the sound
+            v = next(iter(dl["files"].values()), None)
+            if not v:
+                return 0.0, None, None
+            return (1.0 if v["finished"] else (v["got"] / v["tot"] if v.get("tot") else 0.0)), v, None
         v = next((r for r in dl["files"].values() if r["kind"] in ("v", "av")), None)
         if not v:
             return 0.0, None, None
@@ -689,6 +717,8 @@ def _run_chunked(j, o, mode):
         if not v or f < min(1.0, b / total + 0.03):
             return None
         vp = v["final"] if v["finished"] and os.path.exists(v["final"]) else v["tmp"]
+        if parts:
+            return [(vp, "")]
         if v["kind"] == "av":
             return [(vp, "")]
         if not a or not a["finished"] or not os.path.exists(a["final"]):
@@ -700,8 +730,14 @@ def _run_chunked(j, o, mode):
             "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence"))}
     done_n = sum(1 for v in state.values() if v == "done")
     for k, a, b in plan:
-        name = f"ch_{k:03d}"
+        name = f"{'snd' if parts else 'ch'}_{k:03d}"
         if state.get(name) == "done":
+            continue
+        if parts:
+            _parts_piece(j, o, mode, k, a, b, plan, name, inputs_for, frac, dl, extra, heat, base, done_n, total)
+            with j.lock:
+                state[name] = "done"; j.save()
+            done_n += 1
             continue
         src = cdir / (name + ".mp4")
         p0 = 0.02 + 0.96 * done_n / len(plan)
@@ -796,9 +832,115 @@ def _run_chunked(j, o, mode):
         _check(j); time.sleep(2)
     if dl["src"]:
         with j.lock:
-            j.data.setdefault("steps", {})["source"] = True; j.save()
+            j.data.setdefault("steps", {})["sound" if parts else "source"] = True; j.save()
     n = len([c for c in j.data["clips"] if c.get("file")])
     j.set(status="done", stage=f"Done! {n} clips saved.", progress=1)
+
+
+def _merge_transcript(j, tr, a, b):
+    """Adds a piece's transcript (times from a) to the project's whole transcript, so marked moments and the
+    downloaded parts find their words."""
+    trf = j.dir / "transcript.json"
+    try:
+        g = json.loads(trf.read_text("utf-8"))
+    except Exception:
+        g = {"words": [], "segments": []}
+    sh = lambda xs: [dict(x, s=round(x["s"] + a, 3), e=round(x["e"] + a, 3)) for x in xs]
+    for key in ("words", "segments"):
+        g[key] = sorted([x for x in g.get(key, []) if not (a <= x["s"] < b)] + sh(tr.get(key, [])), key=lambda x: x["s"])
+    g["language"] = tr.get("language", g.get("language", "en"))
+    trf.write_text(json.dumps(g, ensure_ascii=False), "utf-8")
+
+
+def _parts_piece(j, o, mode, k, a, b, plan, name, inputs_for, frac, dl, extra, heat, base, done_n, total):
+    """One 3-hour piece of the sound: wait until it's downloaded, transcribe it, pick its moments, then download and
+    render just those moments."""
+    cdir = j.dir / "chunks"
+    p0 = 0.02 + 0.96 * done_n / len(plan)
+    n_want = int(o.get("num_clips", 6))
+    mn, mx = float(o.get("min_len", 20)), float(o.get("max_len", 60))
+    wav, trf = cdir / (name + ".wav"), cdir / (name + ".json")
+    if trf.exists():
+        tr = json.loads(trf.read_text("utf-8"))
+    else:
+        last = 0
+        while True:  # wait for the sound download to pass this piece, then take it out
+            _check(j)
+            if dl["err"]:
+                raise dl["err"]
+            ins = inputs_for(b)
+            if ins:
+                run([FFMPEG, "-y", "-v", "error", "-ss", f"{a:.2f}", "-t", f"{b - a:.2f}", "-i", str(ins[0][0]), "-vn",
+                     "-af", "aresample=async=1000:first_pts=0", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
+                got = media.ffprobe(wav)["duration"] if wav.exists() else 0
+                if got >= (b - a) * 0.97 or (dl["src"] and got > 1):
+                    break
+                wav.unlink(missing_ok=True)
+                time.sleep(15)
+                continue
+            f, _, _ = frac()
+            if time.time() - last > 4:
+                with j.lock:
+                    j.data["stage"] = (f"Downloading the sound… {int(f * 100)}% (part {k + 1} of {len(plan)} is ready at "
+                                       f"{min(100, int(100 * (b / total + 0.03)))}%)")
+                    j.data["progress"] = round(p0, 4)
+                last = time.time()
+            if dl["done"] and not dl["src"]:
+                raise RuntimeError("The download stopped before this part")
+            time.sleep(2)
+        dur = media.ffprobe(wav)["duration"] or (b - a)
+        j.log(f"Part {k + 1} of {len(plan)} is in ({_hms(a)}–{_hms(a + dur)})")
+        s_ = load_settings()
+        j.stage(f"Part {k + 1} of {len(plan)}: transcribing with {'Groq Whisper' if ai.has_groq(s_) else 'Whisper on this PC'}…", p0)
+        tr = ai.transcribe(wav, dur, o.get("language", "auto"), j.log,
+                           lambda f: (_check(j), j.set(progress=round(p0 + 0.4 * f / len(plan), 3))))
+        trf.write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
+        j.log(f"Part {k + 1}: transcribed {len(tr['words'])} words with {tr.get('engine', 'Whisper')}")
+    dur = (tr["segments"][-1]["e"] if tr.get("segments") else 0) or (b - a)
+    _merge_transcript(j, tr, a, a + max(dur, b - a))
+    j.set(lang=tr.get("language", "en"))
+    _check(j)
+    loud = media.loudness(wav) if wav.exists() else np.array([-30.0])
+    wav.unlink(missing_ok=True)
+    if not extra.get("chat") and mode == "stream" and "youtu" in o["url"]:
+        extra["chat"] = signals.yt_replay_chat(j.dir) or None
+    span = b - a
+    chat = [(t - a, x) for t, x in (extra.get("chat") or []) if a <= t < a + span]
+    j.stage(f"Part {k + 1} of {len(plan)}: finding the best moments…", p0 + 0.45 / len(plan))
+    want = max(1, int(round(n_want * span / total + 0.49)))
+    clips, eng = picker.pick_audience(tr, span, want * 2, mn, mx, mode, o.get("prompt", ""), chat or None,
+                                      _slice_heat(heat, a, b), loud, j.log, lambda f: None,
+                                      o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o), niche=nichemod.text(j, wait=0))
+    for c in clips:  # onto the whole video's timeline
+        c["start"], c["end"] = round(c["start"] + a, 2), round(c["end"] + a, 2)
+    pv = _preview(j)
+    if clips and pv and vision.available():
+        clips = vision.rerank(clips, pv, j.log, vision.what_for(mode, o.get("content")))
+    # a score bar: a dull part doesn't add filler, a great part can give more
+    clips.sort(key=lambda c: -c["score"])
+    keep = [c for c in clips if c["score"] >= 50][:want] + [c for c in clips[want:] if c["score"] >= 85][:want]
+    if not keep and clips:
+        keep = clips[:1]
+    taken = [(x["start"] + x.get("offset", 0), x["end"] + x.get("offset", 0)) for x in j.data.get("clips", [])]
+    fresh = []
+    for c in keep:  # skip moments already clipped (for example marked by hand)
+        if any(min(c["end"], e) - max(c["start"], s0) > 0.5 * (c["end"] - c["start"]) for s0, e in taken):
+            continue
+        fresh.append(c)
+    j.log(f"Part {k + 1}: picked {len(fresh)} clips" + (f" with {eng}" if eng and eng != "heuristic" else ""))
+    for i, c in enumerate(fresh):
+        _check(j)
+        c.update(base, n=next_n(j))
+        j.stage(f"Part {k + 1} of {len(plan)}: clip {i + 1} of {len(fresh)}", p0 + (0.55 + 0.4 * i / max(1, len(fresh))) / len(plan))
+        with j.lock:
+            j.data["clips"].append(c)
+        try:
+            render_one(j, c)  # downloads this moment in full quality first
+            auto_publish(j, c)
+        except Exception as e:
+            j.log(f"Clip {c['n']} failed: {str(e)[:300]}")
+            with j.lock:
+                j.data["clips"].remove(c)
 
 
 def _playable(f):
@@ -1713,16 +1855,22 @@ def _manual_run(j, c):
             words = tr.get("words", [])
         else:
             # marked while the video was still downloading: wait for the download only (not the whole transcript)
-            while not c.get("chunk") and not ((j.get("steps") or {}).get("source") or (j.get("steps") or {}).get("sound")):
+            while not c.get("chunk") and not j.get("parts") and not ((j.get("steps") or {}).get("source") or (j.get("steps") or {}).get("sound")):
                 if j.get("status") in ("error", "done") or JOBS.get(j.id) is None:
                     raise RuntimeError("the video didn't finish downloading")
                 with j.lock:
                     c["stage"] = "Waiting for the download to finish"
                 time.sleep(3)
+            if j.get("parts") and not c.get("chunk"):  # download just this moment now, whatever the app is busy with
+                with j.lock:
+                    c["stage"] = "Downloading your moment"
+                _to_part(j, c)
             trf = j.dir / "chunks" / (c["chunk"] + ".json") if c.get("chunk") else j.dir / "transcript.json"
+            has_words = False
             if trf.exists():
                 words, _ = _words_for(j, c)
-            else:  # the full transcript isn't done yet: transcribe just this clip
+                has_words = any(c["start"] - 0.2 <= w["s"] <= c["end"] for w in words)
+            if not has_words:  # the transcript hasn't reached this moment yet: transcribe just this clip
                 with j.lock:
                     c["stage"] = "Transcribing your clip"
                 words = _transcribe_range(j, c["start"], c["end"], c)

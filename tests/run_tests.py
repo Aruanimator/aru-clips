@@ -400,6 +400,46 @@ class PartsOnly(unittest.TestCase):
         finally:
             media.download_sound, media.download_preview, media.download_section, media.download = old
 
+    def test_long_video_in_pieces(self):
+        fresh_out("out_parts_long")
+        calls = {"section": 0}
+
+        def snd(url, dest, log, progress, want_chat=False, on_hook=None):
+            out = pathlib.Path(dest) / "sound.m4a"
+            subprocess.run([FF, "-v", "error", "-y", "-i", str(LONG), "-vn", "-c:a", "aac", str(out)], check=True)
+            if on_hook:
+                on_hook({"status": "finished", "info_dict": {"format_id": "140", "vcodec": "none", "acodec": "mp4a"},
+                         "filename": str(out), "tmpfilename": str(out), "downloaded_bytes": 1, "total_bytes": 1})
+            return out, {"title": "Long parts", "uploader": "Tester"}
+
+        def prev(url, dest, log=print):
+            out = pathlib.Path(dest) / "preview.mp4"; shutil.copy(LONG, out); return out
+
+        def section(url, a, b, out, progress=lambda f: None):
+            calls["section"] += 1
+            subprocess.run([FF, "-v", "error", "-y", "-ss", str(a), "-t", str(b - a), "-i", str(LONG), "-c:v", "libx264",
+                            "-preset", "ultrafast", "-c:a", "aac", str(out)], check=True)
+            return out
+        old = (media.download_sound, media.download_preview, media.download_section, media.probe_url, jobs.CHUNK_FROM, jobs.PART_CHUNK)
+        try:
+            media.download_sound, media.download_preview, media.download_section = snd, prev, section
+            media.probe_url = lambda url: {"duration": 170, "title": "Long parts", "uploader": "Tester"}
+            jobs.CHUNK_FROM, jobs.PART_CHUNK = 60, 80
+            jid = jobs.create({"url": "https://www.youtube.com/watch?v=partslong01", "title": "PL", "source_type": "video", "num_clips": 2,
+                               "min_len": 15, "max_len": 30, "crop_mode": "center", "format": "9:16"})
+            j = jobs.JOBS[jid]
+            self.assertTrue(wait(lambda: j.get("status") in ("done", "error"), 300))
+            self.assertEqual(j.get("status"), "done", j.get("error"))
+            self.assertTrue(j.get("parts") and j.get("chunked"))
+            self.assertEqual(sorted(j.get("chunk_state")), ["snd_000", "snd_001"])
+            got = [c for c in j.data["clips"] if c.get("file")]
+            self.assertTrue(got and all(c.get("part") for c in got))
+            self.assertFalse(list(j.dir.glob("source.*")))
+            tr = json.loads((j.dir / "transcript.json").read_text())
+            self.assertTrue(tr["words"])
+        finally:
+            media.download_sound, media.download_preview, media.download_section, media.probe_url, jobs.CHUNK_FROM, jobs.PART_CHUNK = old
+
 
 class Music(unittest.TestCase):
     def test_detect_mute_and_hold_back(self):
