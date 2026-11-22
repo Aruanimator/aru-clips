@@ -82,7 +82,10 @@ def _system(mode, lang, profile="general", game="any"):
 
 How to judge a moment, most important first:
 1. The first line is the hook. The clip's first sentence must grab attention by itself: a bold claim, a surprising number, a
-   sharp question, a strong emotion, a cliffhanger. Start the clip ON that line, never on the set-up or small talk before it.
+   sharp question, a strong emotion, a cliffhanger. Skip small talk before it.
+   Viewers must see WHY someone reacts: a reaction clip starts on the thing that causes it (what happened in the game, what
+   someone said, the choice or danger), a beat before the reaction, never in the middle of the reaction itself. A scream or a
+   laugh without its cause makes no sense to someone scrolling. Give the second the cause happens as "trigger".
 2. It stands alone. Hook, then build, then payoff (answer, punchline, twist, lesson). Someone who never saw the full video
    understands it. No "like I said earlier", no set-up left hanging.
 3. It carries a payload: funny, shocking, inspiring, infuriating, a hot take, a vivid story, a myth busted, or advice people can use.
@@ -120,7 +123,7 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
     user = (f"Transcript. Each line is [START-END] in seconds from the start of the video:\n{text}\n\n"
             f"Pick up to {n} clips, only ones that truly have a hook and a payoff (fewer strong clips beat many weak ones). "
             f"Each clip is {mn:.0f} to {mx:.0f} seconds; vary the lengths to fit each moment rather than making them all the same. "
-            f"Use START and END times from the lines above so no sentence is cut, START on the hook line and END right after the payoff. "
+            f"Use START and END times from the lines above so no sentence is cut, START on the line that sets up the moment (so viewers see what causes the reaction) and END right after the payoff. "
             f"Clips must not overlap and should be spread across the whole transcript, not bunched at the start.\n")
     if hints:
         user += "Hype moments (loud audio, chat spikes or laughter) at seconds: " + ", ".join(str(int(h)) for h in hints[:25]) + ". Weigh these strongly.\n"
@@ -128,7 +131,7 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
         user += f"Extra instructions from the creator: {prompt}\n"
     user += ('Return JSON: {"clips":[{"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why it stops the scroll","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
-             '"caption":"one-line hook that teases without spoiling"}]}')
+             '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
     out = []
     for c in data.get("clips", []) if isinstance(data, dict) else []:
@@ -168,7 +171,32 @@ def _clip_from(c):
            "hashtags": [h if str(h).startswith("#") else "#" + str(h) for h in (c.get("hashtags") or [])][:6]}
     if parts:
         out["breakdown"] = parts
+    try:
+        if c.get("trigger") not in (None, ""):
+            out["trigger"] = _sec(c["trigger"])
+    except (TypeError, ValueError):
+        pass
     return out
+
+
+def keep_context(c, segs, mx, total, cause=None, lead=2.5):
+    """Makes sure the clip shows what the reaction is about: when the start comes after (or right on) the cause,
+    it moves back to the sentence a beat before it. The clip may run a little over the max length for that."""
+    t = cause if cause is not None else c.get("trigger")
+    if t is None or not (c["start"] - 30 <= t <= c["end"]):
+        return c
+    want = max(0.0, t - lead)
+    if c["start"] <= want:
+        return c
+    g = next((g for g in segs if g["s"] <= want < g["e"] + 0.3), None)  # start on a sentence, not mid-word
+    s = max(0.0, g["s"] - 0.1) if g and want - g["s"] <= 3 else want
+    e = c["end"]
+    if e - s > mx * 1.2:  # too long now: trim the tail, the cause matters more than the last seconds
+        e = s + mx * 1.2
+    c["start"], c["end"] = round(s, 2), round(min(total, e), 2)
+    c["duration"] = round(c["end"] - c["start"], 1)
+    c["context"] = True
+    return c
 
 
 def _sec(v):
@@ -357,7 +385,7 @@ def pick(tr, total, n, mn, mx, mode="video", prompt="", loud=None, hype=(), log=
     if not cands:
         cands = [dict(c, picked_by="backup picker (no AI)") for c in heuristic(words, segs, total, n, mn, mx, loud, hype)]
         engine = "heuristic"
-    cands = [snap(c, words, segs, mn, mx, total) for c in cands if c["end"] > c["start"]]
+    cands = [keep_context(snap(c, words, segs, mn, mx, total), segs, mx, total) for c in cands if c["end"] > c["start"]]
     cands = skip_junk(cands, words, segs, loud, log)
     cands.sort(key=lambda c: -c["score"])
     out = []
@@ -429,15 +457,16 @@ def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game):
             b.append("What chat was typing right after: " + " | ".join(c["chat"]))
         blocks.append("\n".join(b))
     user = ("The audience already flagged these moments: chat exploded, viewers replayed them, or the audio spiked. "
-            "For each moment, find the best clip inside its window: it must contain the peak and what caused it, start on the "
-            f"hook (a few seconds before the action) and end on the payoff. Each clip is {mn:.0f} to {mx:.0f} seconds; use the "
+            "For each moment, find the best clip inside its window: it must contain the peak AND what caused it, so a viewer "
+            "sees what the streamer is reacting to. Start a few seconds before the cause (the event, line or danger), never in "
+            f"the middle of the reaction, and end on the payoff. Each clip is {mn:.0f} to {mx:.0f} seconds; use the "
             "transcript times so no sentence is cut. If a moment is weak or makes no sense without context, set \"skip\": true.\n\n"
             + "\n\n".join(blocks) + "\n\n")
     if prompt:
         user += f"Extra instructions from the creator: {prompt}\n"
     user += ('Return JSON: {"clips":[{"id":1,"skip":false,"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why the audience reacted","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
-             '"caption":"one-line hook that teases without spoiling"}]}')
+             '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
     out = {}
     for c in data.get("clips", []) if isinstance(data, dict) else []:
@@ -508,6 +537,8 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
                     r = None
                 if r and not (r["start"] - 2 <= c["peak"] <= r["end"] + 2):
                     r["start"], r["end"] = max(c["lo"], c["peak"] - mx * 0.5), min(c["hi"], c["peak"] + mx * 0.35)
+                if r and r["start"] > c["peak"] - 4:  # the reaction peak needs its cause on screen first
+                    r.setdefault("trigger", c["peak"] - 2)
                 if r:
                     a = taste.blend()
                     r["ai_score"], r["signal"] = r["score"], round(float(c["sig"]), 3)
@@ -528,7 +559,7 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
                            "reason": f"Audience: {c['why'] or 'reaction peak'}.", "caption": "", "hashtags": ["#gaming"] if profile == "gaming" else [],
                            "picked_by": "audience signals (no AI)"})
         engine = engine or "signals"
-    picked = [soft_snap(c, segs, mn, mx, total) for c in picked]
+    picked = [keep_context(soft_snap(c, segs, mn, mx, total), segs, mx, total) for c in picked]
     picked = skip_junk(picked, words, segs, loud, log)
     picked.sort(key=lambda c: -c["score"])
     out = []

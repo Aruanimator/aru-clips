@@ -1047,6 +1047,7 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
          f"Style: Cap,{font},{fs:.0f},{ass_col(txt)},{ass_col(hi)},{ass_col(ol)},&H64000000,0,0,0,0,100,100,0,0,1,{s['outline'] * sc:.1f},{2 * sc:.1f},5,{ml},{ml},0,1",
          f"Style: CapBox,{font},{fs:.0f},{ass_col(txt)},{ass_col(hi)},{ass_col(lk.get('box_color') or '#141D25')},{ass_col(lk.get('box_color') or '#141D25')},0,0,0,0,100,100,0,0,3,{14 * sc:.1f},0,5,{ml},{ml},0,1",
          f"Style: Title,{tfont},{70 * sc * tsc:.0f},{ass_col(tfg)},{ass_col(tfg)},{ass_col(tbg)},{ass_col(tbg)},0,0,0,0,100,100,0,0,3,{16 * sc * tsc:.1f},0,8,{int(W * .06)},{int(W * .06)},{int(H * .11)},1",
+         f"Style: TitleO,{tfont},{70 * sc * tsc:.0f},{ass_col(lk.get('title_fg') or '#ffffff')},{ass_col(lk.get('title_fg') or '#ffffff')},{ass_col(lk.get('title_bg') or '#000000')},&H64000000,0,0,0,0,100,100,0,0,1,{6 * sc * tsc:.1f},{2 * sc:.1f},8,{int(W * .06)},{int(W * .06)},{int(H * .11)},1",
          f"Style: WM,Montserrat ExtraBold,{wm['size'] * 0.42:.0f},&H1FFFFFFF,&H1FFFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,{1.5 * sc:.1f},{1.5 * sc:.1f},4,0,0,0,1",
          "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
 
@@ -1088,6 +1089,21 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                     rows.append(cur); cur = []
                 cur.append(j)
             rows.append(cur)
+            # a line that would run off the sides is split here, never wrapped by the subtitle engine:
+            # an auto-wrapped line breaks the gradient bands, the boxes and the line spacing
+            max_w = W - 2 * ml
+            cw = fs * (0.7 if s["upper"] else 0.6)
+            ww_ = lambda j: len(words[j]) * cw
+            fit = []
+            for row in rows:
+                cur, wsum = [], 0.0
+                for j in row:
+                    add = ww_(j) + (fs * 0.3 + wsp if cur else 0)
+                    if cur and wsum + add > max_w:
+                        fit.append(cur); cur, wsum = [], 0.0; add = ww_(j)
+                    cur.append(j); wsum += add
+                fit.append(cur)
+            rows = fit
             y_mid = H * cap_pos
             for k, w in enumerate(g):
                 a = g[0]["s"] if k == 0 else w["s"]
@@ -1098,7 +1114,7 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                 anim = "\\t(0,90,\\fscx122\\fscy122)\\t(90,180,\\fscx112\\fscy112)" if bounce else ""
                 for ri, row in enumerate(rows):
                     y = int(y_mid + (ri - (len(rows) - 1) / 2) * line_h)
-                    pos = f"\\pos({x0},{y})"
+                    pos = f"\\q2\\pos({x0},{y})"
 
                     def text(active_tag, other_tag=""):
                         if not hl and not active_tag.startswith("\\1a"):  # no highlight: the spoken word looks like the rest
@@ -1140,12 +1156,16 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
         place = ""
         if tp:  # placed by dragging in the preview: centre of the title box goes there
             place = f"\\an5\\pos({int(W * float(tp.get('x', 0.5)))},{int(H * float(tp.get('y', 0.13)))})"
-        L.append(f"Dialogue: 20,{ts(0)},{ts(min(3.0, dur))},Title,,0,0,0,,{{{place}\\fad(120,200)}}{_esc(clean(title, lk.get('mask_swears')))}")
+        secs = float(3 if lk.get("title_secs") in (None, "") else lk["title_secs"])  # 0 = the whole clip
+        t_end = dur if secs <= 0 or secs >= dur else secs
+        fade = "\\fad(120,0)" if t_end >= dur else "\\fad(120,200)"
+        tsty = "TitleO" if lk.get("title_fmt") == "outline" else "Title"
+        L.append(f"Dialogue: 40,{ts(0)},{ts(t_end)},{tsty},,0,0,0,,{{{place}{fade}}}{_esc(clean(title, lk.get('mask_swears')))}")
     if wm.get("on"):
         x = wm["x"] + wm["w"] + int(wm["size"] * 0.18) if wm["pos"] in ("tl", "bl") else wm["x"] - int(wm["size"] * 0.18)
         al = 4 if wm["pos"] in ("tl", "bl") else 6
         aa = f"{int((1 - wm.get('opacity', 0.92)) * 255):02X}"
-        L.append(f"Dialogue: 21,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})\\1a&H{aa}&\\3a&H{aa}&}}"
+        L.append(f"Dialogue: 41,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})\\1a&H{aa}&\\3a&H{aa}&}}"
                  + _esc(wm.get("text", HANDLE)))
     pathlib.Path(path).write_text("\n".join(L) + "\n", "utf-8-sig")
 
