@@ -1153,14 +1153,36 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                                  f"\\clip(0,{0 if bi == 0 else int(y1)},{W},{y_end})}}" + text(f"\\c{hc}" if hl else f"\\c{col}", f"\\bord0\\shad0\\c{col}"))
     if title_on and title:
         tp = (lk.get("text_pos") or {}).get("title")
-        place = ""
-        if tp:  # placed by dragging in the preview: centre of the title box goes there
-            place = f"\\an5\\pos({int(W * float(tp.get('x', 0.5)))},{int(H * float(tp.get('y', 0.13)))})"
         secs = float(3 if lk.get("title_secs") in (None, "") else lk["title_secs"])  # 0 = the whole clip
         t_end = dur if secs <= 0 or secs >= dur else secs
         fade = "\\fad(120,0)" if t_end >= dur else "\\fad(120,200)"
-        tsty = "TitleO" if lk.get("title_fmt") == "outline" else "Title"
-        L.append(f"Dialogue: 40,{ts(0)},{ts(t_end)},{tsty},,0,0,0,,{{{place}{fade}}}{_esc(clean(title, lk.get('mask_swears')))}")
+        outline = lk.get("title_fmt") == "outline"
+        # the hook is split into lines here and each line placed on its own: a card's boxes all sit on one layer and
+        # the letters on the layer above, so a bigger hook never has one line's box covering the line above it
+        fst, pad = 70 * sc * tsc, (16 * sc * tsc if not outline else 6 * sc * tsc)
+        max_w, cw = W * 0.88 - 2 * pad, fst * 0.56
+        rows_, cur = [], ""
+        for wd in clean(title, lk.get("mask_swears")).split():
+            if cur and len(cur + " " + wd) * cw > max_w:
+                rows_.append(cur); cur = wd
+            else:
+                cur = (cur + " " + wd).strip()
+        if cur:
+            rows_.append(cur)
+        lh = fst * 1.08 + (2 * pad * 0.6 if not outline else 0)
+        block = lh * len(rows_)
+        if tp:  # placed by dragging in the preview: the centre of the hook goes there
+            cx_, cy_ = W * float(tp.get("x", 0.5)), H * float(tp.get("y", 0.13))
+        else:
+            cx_, cy_ = W / 2, H * 0.11 + pad + block / 2
+        for i, row in enumerate(rows_):
+            y_ = int(cy_ - block / 2 + lh * (i + 0.5))
+            at = f"\\an5\\pos({int(cx_)},{y_}){fade}"
+            if outline:
+                L.append(f"Dialogue: 40,{ts(0)},{ts(t_end)},TitleO,,0,0,0,,{{{at}}}{_esc(row)}")
+            else:
+                L.append(f"Dialogue: 39,{ts(0)},{ts(t_end)},Title,,0,0,0,,{{{at}\\1a&HFF&}}{_esc(row)}")
+                L.append(f"Dialogue: 40,{ts(0)},{ts(t_end)},TitleO,,0,0,0,,{{{at}\\bord0\\shad0\\c{ass_col(tfg)}}}{_esc(row)}")
     if wm.get("on"):
         x = wm["x"] + wm["w"] + int(wm["size"] * 0.18) if wm["pos"] in ("tl", "bl") else wm["x"] - int(wm["size"] * 0.18)
         al = 4 if wm["pos"] in ("tl", "bl") else 6

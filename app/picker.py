@@ -537,8 +537,8 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
                     r = None
                 if r and not (r["start"] - 2 <= c["peak"] <= r["end"] + 2):
                     r["start"], r["end"] = max(c["lo"], c["peak"] - mx * 0.5), min(c["hi"], c["peak"] + mx * 0.35)
-                if r and r["start"] > c["peak"] - 4:  # the reaction peak needs its cause on screen first
-                    r.setdefault("trigger", c["peak"] - 2)
+                if r and r["start"] > c["peak"] - 8:  # chat explodes after the moment: start well before it, with the cause on screen
+                    r["trigger"] = min(float(r.get("trigger") or 1e9), c["peak"] - 5)
                 if r:
                     a = taste.blend()
                     r["ai_score"], r["signal"] = r["score"], round(float(c["sig"]), 3)

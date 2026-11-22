@@ -1009,7 +1009,7 @@ def run_live(j):
                         sm = {t: sum(bins.get(u, 0) for u in range(t - 2, t + 3)) / 5 for t in ts_}
                         peak = max(sm.values())
                         onset = next((t for t in ts_ if sm[t] >= 0.5 * peak), int(det))
-                        moment = onset - 4
+                        moment = onset - 6  # chat starts typing a few seconds after what they saw
                     instant_clip(k_, moment, ratio, words)
                 except Exception as e:
                     j.log(f"Instant clip failed: {str(e)[:200]}")

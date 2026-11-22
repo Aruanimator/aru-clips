@@ -527,7 +527,7 @@ h1 span{color:var(--accent2);text-shadow:none;font-weight:600}
 .btn.wide{width:100%}
 .crow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mute);margin-top:6px}
 .crow span{min-width:76px}
-.crow input[type=color]{width:34px;height:26px;border:none;background:none;padding:0;cursor:pointer}
+.crow input[type=color]{width:34px;min-width:34px;flex-shrink:0;height:26px;border:none;background:none;padding:0;cursor:pointer}
 .lines{display:flex;flex-direction:column;gap:6px}
 .lrow{display:flex;gap:8px;align-items:center}
 .lrow span{font-size:11px;color:var(--mute);width:38px;flex:none;text-align:right}
@@ -1157,7 +1157,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
           <div class="field"><label>Layout</label><select id="sdLayout" onchange="sdChangeLayout()"></select></div>
           <div class="field"><label>Format</label><div class="seg" id="sdFmt"></div></div>
           <div class="field" id="sdSplitF"><label>Split <b id="sdSplitV"></b></label><input type="range" id="sdSplit" min="30" max="70" step="1" oninput="sdChangeSplit()">
-            <label class="toggle" style="margin-top:8px"><input type="checkbox" id="sdSwap" onchange="sd.swap=this.checked;sdDraw&&sdDraw()"><span></span>Swap places (streamer on top)</label></div>
+            <label class="toggle" style="margin-top:8px"><input type="checkbox" id="sdSwap" onchange="sd.swap=this.checked;for(const p of['A','B'])if(sd.rects[p])sd.rects[p]=sdFixAspect(sd.rects[p],p);sdBoxes();sdDraw()"><span></span>Swap places (streamer on top)</label></div>
           <div class="field"><label>Screens</label><div id="sdPanes" class="panelist"></div></div>
           <button class="btn wide" onclick="sdResetFraming()">Back to automatic framing</button>
           <p class="hint">Automatic framing follows faces and the facecam as they move. A screen you move by hand stays exactly where you put it.</p>
@@ -1177,7 +1177,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
             <div class="crow"><span>Top</span><input type="color" id="sdGA" oninput="sdLook('grad',{...(sd.look.grad||{}),a:this.value})"><span>Bottom</span><input type="color" id="sdGB" oninput="sdLook('grad',{...(sd.look.grad||{}),b:this.value})"><span>Box</span><input type="color" id="sdBox" oninput="sdLook('box_color',this.value)"></div></div>
           <div class="field"><label>Words per line · lines</label><div style="display:flex;gap:8px">
             <select id="sdWpl" onchange="sdLook('words_per_line',+this.value||0)"><option value="0">Default</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
-            <select id="sdLines" onchange="sdLook('lines',+this.value)"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option></select></div></div>
+            <select id="sdNLines" onchange="sdLook('lines',+this.value)"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option></select></div></div>
           <div class="field"><label>Line spacing <b id="sdLspV"></b> · Word spacing <b id="sdWspV"></b></label><div style="display:flex;gap:8px">
             <input type="range" id="sdLsp" min="70" max="200" oninput="sdLook('line_spacing',this.value/100)"><input type="range" id="sdWsp" min="0" max="60" oninput="sdLook('word_spacing',+this.value)"></div></div>
           <div class="field"><label class="toggle"><input type="checkbox" id="sdHl" onchange="sdLook('highlight',this.checked)"><span></span>Highlight the word being said</label></div>
@@ -1743,7 +1743,8 @@ function renderLook(){
   cap.style.lineHeight=(1.18*(look.line_spacing||1)).toFixed(2);cap.style.wordSpacing=((look.word_spacing||0)*scale/W*100)+'cqw';
   const olw=st.outline*scale/W*100*0.9;
   cap.style.webkitTextStroke=fmtK==='outline'?olw+'cqw '+ol:fmtK==='glow'?(olw*0.45)+'cqw '+ol:'0';cap.style.paintOrder='stroke fill';
-  cap.style.textShadow=fmtK==='shadow'?'0 .08em .14em rgba(0,0,0,.7)':fmtK==='glow'?`0 0 .3em ${glowC},0 0 .12em ${glowC}`:'';
+  const shd=fmtK==='shadow'?'0 .08em .14em rgba(0,0,0,.7)':fmtK==='glow'?`0 0 .3em ${glowC},0 0 .12em ${glowC}`:'';
+  cap.style.textShadow=gradCss?'':shd;cap.style.filter=gradCss&&shd?shd.split(/,(?![^(]*\))/).map(x=>`drop-shadow(${x.trim()})`).join(' '):'';
   const t=$('#pvTitle');t.style.display=$('#titleOv').checked?'':'none';t.style.fontFamily=fam;t.style.setProperty('--tbg',look.title_fmt==='outline'?'transparent':(look.title_bg||'#fff'));
   t.style.color=look.title_fmt==='outline'?(look.title_fg||'#fff'):(look.title_fg||'#101010');
   t.querySelector('span').style.webkitTextStroke=look.title_fmt==='outline'?'.12em '+(look.title_bg||'#000'):'';t.querySelector('span').style.paintOrder='stroke fill';
@@ -1843,7 +1844,7 @@ const PANE_COL={main:'#C2F54C',A:'#C2F54C',B:'#3dc8ff',bubble:'#b45aff'};
 let sd=null;
 
 function sdSizes(){ // output size of each screen, mirroring the renderer
-  const [W,H]=FMT[sd.format],port=H>=W,sp=sd.split;
+  const [W,H]=FMT[sd.format],port=H>=W,sp=sd.swap?1-Math.min(.7,Math.max(.3,sd.split)):sd.split;
   const out={main:[W,H],bubble:[1,1]};
   if(port){const a=Math.round(H*sp/2)*2;out.A=[W,a];out.B=[W,H-a]}else{const a=Math.round(W*sp/2)*2;out.A=[a,H];out.B=[W-a,H]}
   return out}
@@ -1896,7 +1897,7 @@ async function editClip(n){
     sd.swap=!!(info.layout||{}).swap;$('#sdSwap').checked=sd.swap;
     {const L=sd.look,G=L.grad||{};seg($('#sdCapFmt'),v=>sdLook('cap_format',v));segSet($('#sdCapFmt'),L.cap_format||'outline');
      $('#sdGrad').checked=!!G.on;$('#sdGA').value=G.a||'#ffd6f5';$('#sdGB').value=G.b||'#d91aa8';$('#sdBox').value=L.box_color||'#141D25';
-     $('#sdWpl').value=String(L.words_per_line||0);$('#sdLines').value=String(L.lines||1);
+     $('#sdWpl').value=String(L.words_per_line||0);$('#sdNLines').value=String(L.lines||1);
      $('#sdLsp').value=Math.round((L.line_spacing||1)*100);$('#sdLspV').textContent=$('#sdLsp').value+'%';$('#sdWsp').value=L.word_spacing||0;$('#sdWspV').textContent=$('#sdWsp').value;
      $('#sdHl').checked=L.highlight!==false;$('#sdVoice').checked=L.streamer_first!==false}
     const v=$('#sdVid');v.src=info.source;v.currentTime=Math.max(0,sd.start+0.05);
@@ -1915,7 +1916,7 @@ function sdColors(){const st=STY[sd.style]||STY.bold;
   $('#sdTSecs').value=String(sd.look.title_secs??3);$('#sdTFmt').value=sd.look.title_fmt||'card';
   $('#sdBounce').checked=sd.look.effects.includes('bounce');$('#sdMask').checked=!!sd.look.mask_swears;
   $('#sdSizeV').textContent=$('#sdSize').value+'%'}
-function sdLook(k,v){sd.look[k]=v;if(k==='line_spacing')$('#sdLspV').textContent=Math.round(v*100)+'%';if(k==='word_spacing')$('#sdWspV').textContent=v;if(k==='font_scale')$('#sdSizeV').textContent=Math.round(v*100)+'%';if(k==='title_scale')$('#sdTSizeV').textContent=Math.round(v*100)+'%';sdDraw()}
+function sdLook(k,v){sd.look[k]=v;if(['words_per_line','lines','streamer_first'].includes(k))sdGroups();if(k==='line_spacing')$('#sdLspV').textContent=Math.round(v*100)+'%';if(k==='word_spacing')$('#sdWspV').textContent=v;if(k==='font_scale')$('#sdSizeV').textContent=Math.round(v*100)+'%';if(k==='title_scale')$('#sdTSizeV').textContent=Math.round(v*100)+'%';sdDraw()}
 function sdFx(k,on){const e=new Set(sd.look.effects);on?e.add(k):e.delete(k);sd.look.effects=[...e];sdDraw()}
 function sdResetAutoRects(){for(const[p]of PANES[sd.layout]||[])if(!sd.manual.has(p))sd.rects[p]=sdAutoRect(p)}
 function sdChangeLayout(){sd.layout=$('#sdLayout').value;sd.manual.clear();sd.rects={};sdResetAutoRects();sdLayoutOut();sdBoxes();sdDraw()}
@@ -1981,7 +1982,7 @@ function sdPlay(){const v=$('#sdVid');if(!v.paused)return v.pause();if(v.current
 function sdLoop(){if(!sd)return;sdDraw();if(!$('#sdVid').paused)requestAnimationFrame(sdLoop)}
 // ---------- captions (same grouping rules as the renderer)
 function sdGroups(){
-  const st=STY[sd.style]||STY.bold,per=st.words||3;
+  const st=STY[sd.style]||STY.bold,per=sd.look.words_per_line||st.words||3,nl=Math.max(1,sd.look.lines||1),dbl=nl===1&&sd.look.streamer_first===false;
   const ws=sd.words.filter(w=>w.s>=sd.start-0.05&&w.e<=sd.end+0.3&&String(w.w).trim()).sort((a,b)=>a.s-b.s);
   if(ws.some(w=>w.line!=null)){  // written in the text editor: one caption per line, as typed (same as the renderer)
     const g=[];let cur=[],ln=null;
@@ -1989,13 +1990,14 @@ function sdGroups(){
     if(cur.length)g.push(cur);g.forEach(x=>{if(x.length>per+1)x.br=Math.ceil(x.length/2)});sd.groups=g;return}
   const crowded=i=>{const t=ws[i].s,near=ws.filter(w=>w.s>=t-0.2&&w.s<=t+2.5);
     return near.some((w,k)=>k&&w.s<near[k-1].e-0.08)||near.length/2.5>4.2};
-  const g=[];let cur=[],cap=per;
-  ws.forEach((w,i)=>{if(!cur.length)cap=crowded(i)?per*2:per;
+  const base=per*nl,capOf=i=>dbl&&crowded(i)?per*2:base;
+  const g=[];let cur=[],cap=base;
+  ws.forEach((w,i)=>{if(!cur.length)cap=capOf(i);
     const last=cur[cur.length-1];
-    if(cur.length&&(cur.length>=cap||w.s-last.e>0.7||/[.?!।]$/.test(last.w)||(cur.length>=2&&last.w.endsWith(',')&&cap===per))){g.push(cur);cur=[];cap=crowded(i)?per*2:per}
+    if(cur.length&&(cur.length>=cap||w.s-last.e>0.7||/[.?!।]$/.test(last.w)||(cur.length>=2&&last.w.endsWith(',')&&cap===per))){g.push(cur);cur=[];cap=capOf(i)}
     cur.push(w)});
   if(cur.length)g.push(cur);
-  g.forEach(x=>{if(x.length>per)x.br=Math.ceil(x.length/2)});
+  g.forEach(x=>{if(nl>1){x.brs=[];for(let k=per;k<x.length;k+=per)x.brs.push(k)}else if(x.length>per)x.br=Math.ceil(x.length/2)});
   sd.groups=g}
 function sdLines(){
   $('#sdLines').innerHTML=sd.groups.map((g,i)=>`<div class="lrow"><span>${(g[0].s-sd.start).toFixed(1)}s</span><input class="inp" data-g="${i}" value="${esc(g.map(w=>w.w).join(' '))}" onchange="sdEditLine(${i},this.value)"></div>`).join('')
@@ -2038,11 +2040,12 @@ function sdDraw(){
     const f=Math.min(dw/s[2],dh/s[3]);x.drawImage(v,...s,dx+(dw-s[2]*f)/2,dy+(dh-s[3]*f)/2,s[2]*f,s[3]*f)};
   const L=sd.layout,port=H>=W;
   if(['split2','speakers2','gameplay'].includes(L)){
-    const A=sizes.A,B=sizes.B;draw('A',0,0,A[0]*k,A[1]*k);
-    const bx=port?0:A[0]*k,by=port?A[1]*k:0;
+    const A=sizes.A,B=sizes.B,sw_=!!sd.swap,F=sw_?B:A;  // swapped: the second screen goes first (top or left)
+    const ax=sw_?(port?0:B[0]*k):0,ay=sw_?(port?B[1]*k:0):0,bx=sw_?0:(port?0:A[0]*k),by=sw_?0:(port?A[1]*k:0);
+    draw('A',ax,ay,A[0]*k,A[1]*k);
     if(L==='gameplay'){x.fillStyle='#2a2522';x.fillRect(bx,by,B[0]*k,B[1]*k);x.fillStyle='#ffffff55';x.font=`600 ${Math.round(26*k*1.6)}px system-ui`;x.textAlign='center';x.fillText('Gameplay video',bx+B[0]*k/2,by+B[1]*k/2)}
     else draw('B',bx,by,B[0]*k,B[1]*k);
-    x.fillStyle=hi;const t=Math.max(2,6*k);port?x.fillRect(0,A[1]*k-t/2,W*k,t):x.fillRect(A[0]*k-t/2,0,t,H*k);
+    x.fillStyle=hi;const t=Math.max(2,6*k);port?x.fillRect(0,F[1]*k-t/2,W*k,t):x.fillRect(F[0]*k-t/2,0,t,H*k);
   }else if(L==='blur'){blurFit(0,0,W*k,H*k,sd.manual.has('main')?sd.rects.main:null)}
   else if(L==='pip'){
     if(sd.info.framing?.cam||sd.manual.has('main'))draw('main',0,0,W*k,H*k);else blurFit(0,0,W*k,H*k);
@@ -2062,15 +2065,33 @@ function sdText(){
     let g=sd.groups.find(g=>t>=g[0].s-0.05&&t<=g[g.length-1].e+0.25)||(v.paused?sd.groups[0]:null);
     cap.style.display=g?'':'none';
     if(g){const ai=Math.max(0,g.findIndex((w,i)=>t>=w.s&&(i===g.length-1||t<g[i+1].s)));
-      cap.innerHTML=g.map((w,i)=>{let s=st.upper?String(w.w).toUpperCase():w.w;s=esc(s);
-        if(i===ai)s=`<span style="color:${hi};${sd.look.effects.includes('bounce')?'display:inline-block;transform:scale(1.12)':''}">${s}</span>`;
-        return(g.br===i?'<br>':'')+s}).join(' ')}
+      const L=sd.look,fmtK=L.cap_format||'outline',G=L.grad||{},hlOn=L.highlight!==false,brs=g.brs||(g.br!=null?[g.br]:[]);
+      const boxC=L.box_color||(fmtK==='word_box'?hi:'#141D25');
+      const gradCss=G.on&&fmtK!=='word_box'?`background:linear-gradient(${G.a||'#ffd6f5'},${G.b||'#d91aa8'});-webkit-background-clip:text;background-clip:text;color:transparent;`:'';
+      const wh=(w,i)=>{let s=esc(st.upper?String(w.w).toUpperCase():w.w);
+        if(fmtK==='word_box'&&i===ai)return `<span style="background:${boxC};color:${L.box_text||'#101010'};-webkit-text-stroke:0;padding:0 .12em;border-radius:.08em">${s}</span>`;
+        if(i===ai&&hlOn)return `<span style="color:${hi};${L.effects.includes('bounce')?'display:inline-block;transform:scale(1.12)':''}">${s}</span>`;
+        return gradCss?`<span style="${gradCss}">${s}</span>`:s};
+      const rows=[];let row=[];g.forEach((w,i)=>{if(brs.includes(i)&&row.length){rows.push(row);row=[]}row.push(wh(w,i))});rows.push(row);
+      cap.innerHTML=rows.map(r=>{const h=r.join(' ');return fmtK==='box'?`<span style="background:${boxC};padding:.06em .3em;border-radius:.06em;-webkit-text-stroke:0">${h}</span>`:h}).join('<br>');
+      cap.style.lineHeight=(1.18*(L.line_spacing||1)).toFixed(2);cap.style.wordSpacing=((L.word_spacing||0)*scale/W*100)+'cqw';
+      const olw=st.outline*scale/W*100*0.9,glowC=L.glow_color||(G.on?(G.b||'#d91aa8'):hi);
+      cap.style.webkitTextStroke=fmtK==='outline'?olw+'cqw '+ol:fmtK==='glow'?(olw*0.45)+'cqw '+ol:'0';
+      const shd=fmtK==='shadow'?'0 .08em .14em rgba(0,0,0,.7)':fmtK==='glow'?`0 0 .3em ${glowC},0 0 .12em ${glowC}`:'';
+      cap.style.textShadow=gradCss?'':shd;cap.style.filter=gradCss&&shd?shd.split(/,(?![^(]*\))/).map(x=>`drop-shadow(${x.trim()})`).join(' '):''}
     cap.style.fontFamily=fam;cap.style.fontSize=fsz+'cqw';cap.style.color=tx;cap.style.top=sd.capPos*100+'%';cap.style.left=(tp.cap_x??.5)*100+'%';
-    cap.style.webkitTextStroke=(st.outline*scale/W*100*0.9)+'cqw '+ol;cap.style.paintOrder='stroke fill'}
-  ttl.style.display=$('#sdTitleOn').checked&&$('#sdTitle').value.trim()?'':'none';ttl.innerHTML='<span>'+esc($('#sdTitle').value)+'</span>';
-  ttl.style.fontFamily=fam;ttl.style.setProperty('--tbg',sd.look.title_bg||'#fff');ttl.style.color=sd.look.title_fg||'#101010';
-  ttl.style.fontSize=(70*scale*(sd.look.title_scale||1)/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:11)+'%';ttl.style.transform=tp.title?'translate(-50%,-50%)':'translate(-50%,0)';
+    cap.style.paintOrder='stroke fill'}
+  ttl.style.display=$('#sdTitleOn').checked&&$('#sdTitle').value.trim()?'':'none';
+  const tsc=sd.look.title_scale||1,outl=sd.look.title_fmt==='outline';
+  ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl).map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
+  ttl.style.fontFamily=fam;ttl.style.setProperty('--tbg',outl?'transparent':(sd.look.title_bg||'#fff'));ttl.style.color=outl?(sd.look.title_fg||'#fff'):(sd.look.title_fg||'#101010');
+  ttl.querySelectorAll('span').forEach(e=>{e.style.webkitTextStroke=outl?'.12em '+(sd.look.title_bg||'#000'):'';e.style.paintOrder='stroke fill'});
+  ttl.style.fontSize=(70*scale*tsc/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:11)+'%';ttl.style.transform=tp.title?'translate(-50%,-50%)':'translate(-50%,0)';
 }
+// the hook's lines, split the same way the renderer splits them
+function hookRows(text,W,scale,tsc,outl){const fs=70*scale*tsc,pad=(outl?6:16)*scale*tsc,maxW=W*0.88-2*pad,cw=fs*0.56;
+  const rows=[];let cur='';String(text||'').split(/\s+/).filter(Boolean).forEach(w=>{if(cur&&(cur+' '+w).length*cw>maxW){rows.push(cur);cur=w}else cur=(cur+' '+w).trim()});
+  if(cur)rows.push(cur);return rows}
 (function(){ // drag caption + title inside the result
   const drag=(el,cb)=>el.addEventListener('pointerdown',e=>{
     if(!sd)return;e.preventDefault();el.setPointerCapture(e.pointerId);el.classList.add('dragging');
