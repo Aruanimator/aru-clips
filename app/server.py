@@ -441,7 +441,7 @@ def update_check():
     except Exception:
         pass
     d = {"current": cur, "latest": latest, "newer": bool(latest and cur != "dev" and latest > cur),
-         "url": "https://github.com/Aruanimator/aru-clips/raw/main/download/AruClips.exe"}
+         "url": "https://github.com/Aruanimator/aru-clips"}
     _upd.update(t=time.time(), data=d)
     return d
 

@@ -663,6 +663,9 @@ input[type=range]::-moz-range-track{background:#141D25!important;border-radius:4
 input[type=range]::-moz-range-progress{background:#C2F54C;height:5px;border-radius:4px}
 input[type=range]::-webkit-slider-thumb{width:16px!important;height:16px!important;margin-top:-5.5px!important;border-radius:50%!important;border:0!important;background:#E8EEF3!important;box-shadow:0 1px 3px #0008!important}
 input[type=range]::-moz-range-thumb{width:16px!important;height:16px!important;border-radius:50%!important;border:0!important;background:#E8EEF3!important}
+.follow{position:fixed;top:14px;right:22px;z-index:15;display:flex;align-items:center;gap:4px;padding:4px 6px 4px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--mute)}
+.follow span{margin-right:4px}.follow a{display:grid;place-items:center;width:26px;height:26px;border-radius:6px;color:var(--text)}.follow a:hover{background:#263443;color:var(--accent)}
+a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text-decoration:none;color:var(--text);font-weight:500}a.topbanner:hover{color:var(--accent)}
 .support{width:100%;margin:2px 0 0;font-size:12px;color:var(--mute);background:none;border:0;padding:6px 10px;cursor:pointer;text-align:left;border-radius:6px}
 .support:hover{color:var(--text)}
 .suppop{position:fixed;left:16px;bottom:56px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
@@ -686,6 +689,13 @@ input[type=range]::-moz-range-thumb{width:16px!important;height:16px!important;b
     <button class="support" onclick="$('#supPop').classList.toggle('on')">Follow the creator</button>
   </div>
 </aside>
+<div class="follow" aria-label="Follow the creator">
+  <span>Follow</span>
+  <a href="https://www.instagram.com/aru_animator/" target="_blank" rel="noopener" title="Instagram · @aru_animator" aria-label="Instagram">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"/></svg></a>
+  <a href="https://www.linkedin.com/in/aruanimator/" target="_blank" rel="noopener" title="LinkedIn · aruanimator" aria-label="LinkedIn">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M4.5 9h3v11h-3zM6 3.8a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM10 9h2.9v1.5h.04c.4-.76 1.4-1.6 2.9-1.6 3.1 0 3.7 2 3.7 4.7V20h-3v-5.6c0-1.3 0-3-1.85-3s-2.1 1.4-2.1 2.9V20H10z"/></svg></a>
+</div>
 <div class="suppop" id="supPop" role="dialog" aria-label="Follow the creator">
   <p>Aru Clips is free. If it helps you, a follow means a lot.</p>
   <a href="https://www.instagram.com/aru_animator/" target="_blank" rel="noopener">Instagram · @aru_animator ↗</a>
@@ -693,7 +703,7 @@ input[type=range]::-moz-range-thumb{width:16px!important;height:16px!important;b
 </div>
 
 <main>
-  <div class="topbanner" id="updBanner" style="display:none"><span>A new version of Aru Clips is ready.</span><a class="btn sm pri" id="updLink" target="_blank">Download</a><button class="btn sm" onclick="this.parentNode.style.display='none'">Later</button></div>
+  <a class="topbanner" id="updBanner" style="display:none" href="https://github.com/Aruanimator/aru-clips" target="_blank" rel="noopener">Update available ↗</a>
   <div class="topbanner warn" id="diskBanner" style="display:none"><span id="diskTxt"></span><button class="btn sm pri" onclick="openSpace()">Free up space</button><button class="btn sm" onclick="this.parentNode.style.display='none'">Hide</button></div>
   <!-- NEW PROJECT -->
   <section id="newView" class="wrap wide">
@@ -2616,7 +2626,7 @@ async function dropSource(id,btn){if(!confirm('Delete this project\'s downloaded
   try{const r=await api(`/api/jobs/${id}/drop-source`,{method:'POST'});toast(`Freed ${r.freed_gb} GB`);openSpace();checkDisk()}catch(e){toast(e.message);btn.disabled=false}}
 async function checkDisk(){try{const st=await api('/api/storage');$('#diskBanner').style.display=st.low?'':'none';
   $('#diskTxt').textContent=`Only ${st.free_gb} GB free on the drive your clips are saved to. Long streams need 5–10 GB each.`}catch(e){}}
-async function checkUpdate(){try{const u=await api('/api/update');if(u.newer){$('#updLink').href=u.url;$('#updBanner').style.display=''}}catch(e){}}
+async function checkUpdate(){try{const u=await api('/api/update');if(u.newer){$('#updBanner').href=u.url;$('#updBanner').style.display=''}}catch(e){}}
 async function uninstallApp(){try{await api('/api/uninstall',{method:'POST'});closeSettings();toast('Follow the Uninstall Aru Clips window on your screen')}catch(e){toast(e.message)}}
 async function tasteReset(){if(!confirm('Forget all your ratings and go back to the default scoring?'))return;await api('/api/taste/reset',{method:'POST'});tasteInfo()}
 
