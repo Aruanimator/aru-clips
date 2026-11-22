@@ -633,6 +633,12 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .posttpl{margin-top:12px;font-size:13px}.posttpl summary{cursor:pointer;color:var(--mute)}.posttpl .field{margin-top:10px}
 .topbanner{display:flex;align-items:center;gap:10px;margin:14px auto 0;max-width:1100px;padding:10px 14px;border-radius:12px;background:#C2F54C14;border:1px solid #C2F54C40;font-size:13px}
 .topbanner span{flex:1}.topbanner.warn{background:#ffb34714;border-color:#ffb34755}
+.stylebar{display:flex;align-items:center;gap:8px;margin:14px 0 2px;font-size:12.5px;color:var(--mute);flex-wrap:wrap}.stylebar span{font-weight:600;color:var(--text)}
+#capFmt button,#sdCapFmt button{white-space:nowrap}
+/* flat boxes: no glow or drop shadows, outlines only */
+.card,.clip,.mbox{box-shadow:0 0 0 1px var(--line)!important}
+.seg button.on,.btn.pri,.go,.go:hover,.chip.on,.minibtn.neon,.score.hot,.prog i,.toggle input:checked+span{box-shadow:none!important}
+.tile.on,.look.on,.pal.on,.lay.on,.laytile.on,.sty.on,.srcmode button.on{box-shadow:0 0 0 1.5px var(--accent)!important}
 </style>
 </head>
 <body>
@@ -709,6 +715,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         </div>
       </div>
 
+      <div class="stylebar"><span>Style</span><button class="btn sm" onclick="saveDefaultStyle()">Save as my default style</button><button class="btn sm" onclick="useDefaultStyle()">Use my default</button><small id="styleNote"></small></div>
       <div class="tabs" id="tabs">
         <button data-v="clips" class="on">Clips</button><button data-v="layout">Layout</button><button data-v="fonts">Fonts</button><button data-v="colors">Colors</button>
         <button data-v="format">Format</button><button data-v="sfx">SFX</button><button data-v="fx">Effects</button>
@@ -750,6 +757,28 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
             <label>Caption height <span class="rangeval" id="posV">70%</span></label>
             <input type="range" id="pos" min="15" max="88" value="70" oninput="posV.textContent=this.value+'%';renderLook()">
           </div>
+          <div class="field" style="grid-column:1/-1">
+            <label>Text format</label>
+            <div class="seg" id="capFmt"><button data-v="outline" class="on">Outline</button><button data-v="box">Box</button><button data-v="word_box">Word box</button><button data-v="shadow">Shadow</button><button data-v="glow">Glow</button></div>
+          </div>
+          <div class="field">
+            <label>Words per line · lines at a time</label>
+            <div style="display:flex;gap:8px"><select id="capWpl" onchange="look.words_per_line=+this.value||0;renderLook()"><option value="0">Style default</option><option value="1">1 word</option><option value="2">2 words</option><option value="3">3 words</option><option value="4">4 words</option><option value="5">5 words</option><option value="6">6 words</option></select>
+              <select id="capLines" onchange="look.lines=+this.value;renderLook()"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option></select></div>
+          </div>
+          <div class="field">
+            <div style="display:flex;gap:14px">
+              <div style="flex:1"><label>Line spacing <span class="rangeval" id="capLspV">100%</span></label>
+              <input type="range" id="capLsp" min="70" max="200" value="100" oninput="capLspV.textContent=this.value+'%';look.line_spacing=this.value/100;renderLook()"></div>
+              <div style="flex:1"><label>Word spacing <span class="rangeval" id="capWspV">0</span></label>
+              <input type="range" id="capWsp" min="0" max="60" value="0" oninput="capWspV.textContent=this.value;look.word_spacing=+this.value;renderLook()"></div></div>
+          </div>
+          <div class="field">
+            <label>Captions</label>
+            <label class="toggle"><input type="checkbox" id="capHl" checked onchange="look.highlight=this.checked;renderLook()"><span></span>Highlight the word being said</label>
+            <label class="toggle" style="margin-top:10px"><input type="checkbox" id="capVoice" checked onchange="look.streamer_first=this.checked"><span></span>Streamer's voice first</label>
+            <p class="hint" style="margin:6px 0 0">When the game talks over the streamer, only the streamer gets captions, and captions never stack.</p>
+          </div>
           <div class="field">
             <label>Extras</label>
             <label class="toggle"><input type="checkbox" id="titleOv" checked onchange="renderLook()"><span></span>Hook title on screen for the first 3 seconds</label>
@@ -783,7 +812,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         <div class="block"><div class="sech">Reframe layout <span style="font-weight:400">How each clip is arranged on screen</span></div>
           <div class="gal laygal" id="layGal"></div></div>
         <div class="block" id="splitBlock" style="display:none"><div class="field"><label>Top frame size <span class="rangeval" id="spV">50%</span></label>
-          <input type="range" id="sp" min="30" max="70" value="50" oninput="spV.textContent=this.value+'%';layoutOpts.split=this.value/100;renderLook()"></div></div>
+          <input type="range" id="sp" min="30" max="70" value="50" oninput="spV.textContent=this.value+'%';layoutOpts.split=this.value/100;renderLook()"></div>
+          <label class="toggle"><input type="checkbox" id="swapP" onchange="layoutOpts.swap=this.checked;renderLook()"><span></span>Swap places (streamer on top, gameplay below)</label></div>
         <div class="block" id="fillBlock" style="display:none"><div class="sech">Gameplay videos <span style="font-weight:400">Loops under your clip, random start each time</span></div>
           <div class="gal" id="fillGal"></div>
           <p class="hint">Use gameplay or footage you own or have rights to. The app never downloads it for you.</p></div>
@@ -810,6 +840,15 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         <div class="block"><div class="sech">Palettes</div><div class="swrow" id="palettes"></div></div>
         <div class="block"><div class="sech">Custom colors</div>
           <div class="pickers" id="pickers"></div></div>
+        <div class="block"><div class="sech">Gradient text <span style="font-weight:400">Top colour fades into the bottom colour</span></div>
+          <label class="toggle"><input type="checkbox" id="gradOn" onchange="look.grad={...(look.grad||{}),on:this.checked};renderLook()"><span></span>Gradient captions</label>
+          <div class="crow" style="margin-top:10px"><span>Top</span><input type="color" id="gradA" value="#ffd6f5" oninput="look.grad={...(look.grad||{}),a:this.value};renderLook()">
+            <span>Bottom</span><input type="color" id="gradB" value="#d91aa8" oninput="look.grad={...(look.grad||{}),b:this.value};renderLook()"></div>
+          <div class="chips" id="gradPresets" style="margin-top:10px"></div>
+          <p class="hint">Tip: Glow format + the Neon pink gradient gives the soft neon look.</p></div>
+        <div class="block"><div class="sech">Box colour <span style="font-weight:400">For the Box and Word box formats</span></div>
+          <div class="crow"><span>Box</span><input type="color" id="boxCol" value="#141D25" oninput="look.box_color=this.value;renderLook()">
+            <span>Text on word box</span><input type="color" id="boxTxt" value="#101010" oninput="look.box_text=this.value;renderLook()"></div></div>
       </div>
 
       <!-- FORMAT -->
@@ -1112,7 +1151,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         <div class="spane on" id="sd-frame">
           <div class="field"><label>Layout</label><select id="sdLayout" onchange="sdChangeLayout()"></select></div>
           <div class="field"><label>Format</label><div class="seg" id="sdFmt"></div></div>
-          <div class="field" id="sdSplitF"><label>Split <b id="sdSplitV"></b></label><input type="range" id="sdSplit" min="30" max="70" step="1" oninput="sdChangeSplit()"></div>
+          <div class="field" id="sdSplitF"><label>Split <b id="sdSplitV"></b></label><input type="range" id="sdSplit" min="30" max="70" step="1" oninput="sdChangeSplit()">
+            <label class="toggle" style="margin-top:8px"><input type="checkbox" id="sdSwap" onchange="sd.swap=this.checked;sdDraw&&sdDraw()"><span></span>Swap places (streamer on top)</label></div>
           <div class="field"><label>Screens</label><div id="sdPanes" class="panelist"></div></div>
           <button class="btn wide" onclick="sdResetFraming()">Back to automatic framing</button>
           <p class="hint">Automatic framing follows faces and the facecam as they move. A screen you move by hand stays exactly where you put it.</p>
@@ -1127,6 +1167,16 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
             <div class="crow"><span>Active word</span><input type="color" id="sdCHi" oninput="sdLook('hi_color',this.value)"></div>
             <div class="crow"><span>Outline</span><input type="color" id="sdCOut" oninput="sdLook('outline_color',this.value)"></div>
           </div>
+          <div class="field"><label>Text format</label><div class="seg" id="sdCapFmt"><button data-v="outline">Outline</button><button data-v="box">Box</button><button data-v="word_box">Word box</button><button data-v="shadow">Shadow</button><button data-v="glow">Glow</button></div></div>
+          <div class="field"><label class="toggle"><input type="checkbox" id="sdGrad" onchange="sdLook('grad',{...(sd.look.grad||{}),on:this.checked})"><span></span>Gradient</label>
+            <div class="crow"><span>Top</span><input type="color" id="sdGA" oninput="sdLook('grad',{...(sd.look.grad||{}),a:this.value})"><span>Bottom</span><input type="color" id="sdGB" oninput="sdLook('grad',{...(sd.look.grad||{}),b:this.value})"><span>Box</span><input type="color" id="sdBox" oninput="sdLook('box_color',this.value)"></div></div>
+          <div class="field"><label>Words per line · lines</label><div style="display:flex;gap:8px">
+            <select id="sdWpl" onchange="sdLook('words_per_line',+this.value||0)"><option value="0">Default</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
+            <select id="sdLines" onchange="sdLook('lines',+this.value)"><option value="1">1 line</option><option value="2">2 lines</option><option value="3">3 lines</option></select></div></div>
+          <div class="field"><label>Line spacing <b id="sdLspV"></b> · Word spacing <b id="sdWspV"></b></label><div style="display:flex;gap:8px">
+            <input type="range" id="sdLsp" min="70" max="200" oninput="sdLook('line_spacing',this.value/100)"><input type="range" id="sdWsp" min="0" max="60" oninput="sdLook('word_spacing',+this.value)"></div></div>
+          <div class="field"><label class="toggle"><input type="checkbox" id="sdHl" onchange="sdLook('highlight',this.checked)"><span></span>Highlight the word being said</label></div>
+          <div class="field"><label class="toggle"><input type="checkbox" id="sdVoice" onchange="sdLook('streamer_first',this.checked)"><span></span>Streamer's voice first</label></div>
           <div class="field"><label class="toggle"><input type="checkbox" id="sdBounce" onchange="sdFx('bounce',this.checked)"><span></span>Bouncy active word</label></div>
           <div class="field"><label class="toggle"><input type="checkbox" id="sdMask" onchange="sdLook('mask_swears',this.checked)"><span></span>Bleep swear words</label></div>
           <div class="field"><label>Hook title</label><input class="inp" id="sdTitle" oninput="sdDraw()"></div>
@@ -1134,6 +1184,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
           <div class="field"><label>Title size <b id="sdTSizeV"></b></label><input type="range" id="sdTSize" min="50" max="180" step="5" oninput="sdLook('title_scale',this.value/100)"></div>
           <div class="crow"><span>Title card</span><input type="color" id="sdTBg" oninput="sdLook('title_bg',this.value)"><span>Title text</span><input type="color" id="sdTFg" oninput="sdLook('title_fg',this.value)"></div>
           <button class="btn wide" onclick="sdResetPlace()">Reset text placement</button>
+          <button class="btn wide" onclick="sdSaveDefault()">Save this as my default style</button>
         </div>
         <div class="spane" id="sd-caps">
           <div class="seg" id="sdCapMode"><button data-v="lines" class="on">Line by line</button><button data-v="text">Text editor</button></div>
@@ -1644,7 +1695,8 @@ function drawLayoutPreview(W,H,hi){
   const L=$('#pvLay');let h='';const r=(+$('#sp').value||50)/100,port=H>=W;
   const bad='position:absolute;';
   if(SPLITS.includes(layout)){
-    const pane=port?`left:0;right:0;top:${r*100}%;bottom:0`:`top:0;bottom:0;left:${r*100}%;right:0`;
+    const sw=!!layoutOpts.swap&&layout!=='gameplay';
+    const pane=sw?(port?`left:0;right:0;top:0;bottom:${(1-r)*100}%`:`top:0;bottom:0;left:0;right:${(1-r)*100}%`):(port?`left:0;right:0;top:${r*100}%;bottom:0`:`top:0;bottom:0;left:${r*100}%;right:0`);
     const dv=port?`left:0;right:0;top:calc(${r*100}% - .3cqw);height:.6cqw`:`top:0;bottom:0;left:calc(${r*100}% - .3cqw);width:.6cqw`;
     let inner='';
     if(layout==='gameplay')inner='<div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#1f3a2a 0 12%,#264a35 12% 24%)"></div><div class="pvlbl">GAMEPLAY</div>';
@@ -1668,11 +1720,23 @@ function renderLook(){
   stage.className='stage'+(stage.classList.contains('demo')?' demo':'')+(stage.classList.contains('fxplay')?' fxplay':'')+look.effects.map(e=>' e-'+e).join('');
   const cap=$('#pvCap'),hi=effColor('hi'),tx=effColor('text'),ol=effColor('outline');
   const none=styleKey()==='none';cap.style.display=none?'none':'';
-  const words=(st.upper?['THIS','IS','HOW']:['This','is','how']).slice(0,Math.max(2,st.words));
+  const per=look.words_per_line||st.words,nl=look.lines||1,fmtK=look.cap_format||'outline',G=look.grad||{},hlOn=look.highlight!==false;
+  const pool=st.upper?['THIS','IS','HOW','YOUR','CAPTIONS','LOOK','ON','THE','SCREEN','RIGHT','NOW','OK']:['This','is','how','your','captions','look','on','the','screen','right','now','ok'];
+  const words=pool.slice(0,Math.max(2,per*nl));
   const hw=demoT?demoIdx%words.length:Math.min(1,words.length-1);
-  cap.innerHTML=words.map((w,i)=>i===hw?`<span class="act" style="color:${hi};${look.effects.includes('bounce')?'transform:scale(1.12)':''}">${w}</span>`:w).join(' ');
+  const boxC=look.box_color||(fmtK==='word_box'?hi:'#141D25'),gradCss=G.on&&fmtK!=='word_box'?`background:linear-gradient(${G.a||'#ffd6f5'},${G.b||'#d91aa8'});-webkit-background-clip:text;background-clip:text;color:transparent;`:'';
+  const glowC=G.on?(G.b||'#d91aa8'):hi;
+  const wHtml=(w,i)=>{const act=i===hw&&hlOn;
+    if(fmtK==='word_box'&&i===hw)return `<span class="act" style="background:${boxC};color:${look.box_text||'#101010'};-webkit-text-stroke:0;padding:0 .12em;border-radius:.08em">${w}</span>`;
+    if(act)return `<span class="act" style="color:${hi};${look.effects.includes('bounce')?'transform:scale(1.12);display:inline-block':''}">${w}</span>`;
+    return gradCss?`<span style="${gradCss}">${w}</span>`:w};
+  const rows=[];for(let i=0;i<words.length;i+=per)rows.push(words.slice(i,i+per).map((w,k)=>wHtml(w,i+k)).join(' '));
+  cap.innerHTML=rows.map(r=>fmtK==='box'?`<span style="background:${boxC};padding:.06em .3em;border-radius:.06em;-webkit-text-stroke:0">${r}</span>`:r).join('<br>');
   cap.style.fontFamily=fam;cap.style.fontSize=fsz+'cqw';cap.style.color=tx;cap.style.top=($('#pos').value)+'%';cap.style.left=((look.text_pos?.cap_x??.5)*100)+'%';
-  cap.style.webkitTextStroke=(st.outline*scale/W*100*0.9)+'cqw '+ol;cap.style.paintOrder='stroke fill';
+  cap.style.lineHeight=(1.18*(look.line_spacing||1)).toFixed(2);cap.style.wordSpacing=((look.word_spacing||0)*scale/W*100)+'cqw';
+  const olw=st.outline*scale/W*100*0.9;
+  cap.style.webkitTextStroke=fmtK==='outline'?olw+'cqw '+ol:fmtK==='glow'?(olw*0.45)+'cqw '+ol:'0';cap.style.paintOrder='stroke fill';
+  cap.style.textShadow=fmtK==='shadow'?'0 .08em .14em rgba(0,0,0,.7)':fmtK==='glow'?`0 0 .3em ${glowC},0 0 .12em ${glowC}`:'';
   const t=$('#pvTitle');t.style.display=$('#titleOv').checked?'':'none';t.style.fontFamily=fam;t.style.setProperty('--tbg',look.title_bg||'#fff');t.style.color=look.title_fg||'#101010';
   t.style.fontSize=(70*scale*(look.title_scale||1)/W*100*assEm(look.font||'Montserrat Black'))+'cqw';syncSizeLabels();
   const tp=look.text_pos?.title;t.style.left=((tp?.x??.5)*100)+'%';t.style.top=(tp?tp.y*100:11)+'%';t.style.transform=tp?'translate(-50%,-50%)':'translate(-50%,0)';
@@ -1819,6 +1883,12 @@ async function editClip(n){
     $('#sdTSize').value=Math.round((sd.look.title_scale||1)*100);$('#sdTSizeV').textContent=$('#sdTSize').value+'%';
     $('#sdFx').innerHTML=FXS.filter(f=>f[0]!=='bounce').map(f=>`<label class="toggle"><input type="checkbox" data-fx="${f[0]}" ${sd.look.effects.includes(f[0])?'checked':''} onchange="sdFx('${f[0]}',this.checked)"><span></span>${f[1]}</label>`).join('');
     $('#sdSplit').value=Math.round(sd.split*100);
+    sd.swap=!!(info.layout||{}).swap;$('#sdSwap').checked=sd.swap;
+    {const L=sd.look,G=L.grad||{};seg($('#sdCapFmt'),v=>sdLook('cap_format',v));segSet($('#sdCapFmt'),L.cap_format||'outline');
+     $('#sdGrad').checked=!!G.on;$('#sdGA').value=G.a||'#ffd6f5';$('#sdGB').value=G.b||'#d91aa8';$('#sdBox').value=L.box_color||'#141D25';
+     $('#sdWpl').value=String(L.words_per_line||0);$('#sdLines').value=String(L.lines||1);
+     $('#sdLsp').value=Math.round((L.line_spacing||1)*100);$('#sdLspV').textContent=$('#sdLsp').value+'%';$('#sdWsp').value=L.word_spacing||0;$('#sdWspV').textContent=$('#sdWsp').value;
+     $('#sdHl').checked=L.highlight!==false;$('#sdVoice').checked=L.streamer_first!==false}
     const v=$('#sdVid');v.src=info.source;v.currentTime=Math.max(0,sd.start+0.05);
     v.onloadeddata=()=>{sdDraw()};v.onseeked=()=>sdDraw();
     v.ontimeupdate=()=>{if(!v.paused&&v.currentTime>=sd.end){v.pause();v.currentTime=sd.start}sdHead()};
@@ -1834,7 +1904,7 @@ function sdColors(){const st=STY[sd.style]||STY.bold;
   $('#sdTBg').value=sd.look.title_bg||'#ffffff';$('#sdTFg').value=sd.look.title_fg||'#101010';
   $('#sdBounce').checked=sd.look.effects.includes('bounce');$('#sdMask').checked=!!sd.look.mask_swears;
   $('#sdSizeV').textContent=$('#sdSize').value+'%'}
-function sdLook(k,v){sd.look[k]=v;if(k==='font_scale')$('#sdSizeV').textContent=Math.round(v*100)+'%';if(k==='title_scale')$('#sdTSizeV').textContent=Math.round(v*100)+'%';sdDraw()}
+function sdLook(k,v){sd.look[k]=v;if(k==='line_spacing')$('#sdLspV').textContent=Math.round(v*100)+'%';if(k==='word_spacing')$('#sdWspV').textContent=v;if(k==='font_scale')$('#sdSizeV').textContent=Math.round(v*100)+'%';if(k==='title_scale')$('#sdTSizeV').textContent=Math.round(v*100)+'%';sdDraw()}
 function sdFx(k,on){const e=new Set(sd.look.effects);on?e.add(k):e.delete(k);sd.look.effects=[...e];sdDraw()}
 function sdResetAutoRects(){for(const[p]of PANES[sd.layout]||[])if(!sd.manual.has(p))sd.rects[p]=sdAutoRect(p)}
 function sdChangeLayout(){sd.layout=$('#sdLayout').value;sd.manual.clear();sd.rects={};sdResetAutoRects();sdLayoutOut();sdBoxes();sdDraw()}
@@ -2008,8 +2078,11 @@ async function studioRender(){
     crop_mode:sd.layout,format:sd.format,caption_style:sd.style,caption_position:+sd.capPos.toFixed(3),remove_silence:$('#sdCut').checked,
     look:{font:sd.look.font||'',font_scale:sd.look.font_scale||1,title_scale:sd.look.title_scale||1,text_color:sd.look.text_color||'',hi_color:sd.look.hi_color||'',
       outline_color:sd.look.outline_color||'',title_bg:sd.look.title_bg||'',title_fg:sd.look.title_fg||'',effects:sd.look.effects,
-      text_pos:sd.look.text_pos||null,mask_swears:!!sd.look.mask_swears},
-    layout:{split:sd.split},framing:Object.keys(manual).length?manual:null};
+      text_pos:sd.look.text_pos||null,mask_swears:!!sd.look.mask_swears,
+      cap_format:sd.look.cap_format||'outline',grad:sd.look.grad||{on:false},box_color:sd.look.box_color||'',box_text:sd.look.box_text||'',
+      words_per_line:sd.look.words_per_line||0,lines:sd.look.lines||1,line_spacing:sd.look.line_spacing||1,word_spacing:sd.look.word_spacing||0,
+      highlight:sd.look.highlight!==false,streamer_first:sd.look.streamer_first!==false},
+    layout:{split:sd.split,swap:!!sd.swap},framing:Object.keys(manual).length?manual:null};
   if(sd.textDirty&&$('#sdCapText').style.display!=='none')sdApplyText();
   if(sd.wordsEdited)body.words=sd.words.filter(w=>w.s>=sd.start-1&&w.s<=sd.end+1);else if(sd.resetWords)body.words=null;
   body.caption=$('#sdPostCap').value.trim();body.hashtags=$('#sdTags').value.split(/[\s,]+/).filter(Boolean);
@@ -2033,10 +2106,35 @@ function restoreLook(saved){
   $('#sp').value=Math.round((layoutOpts.split||.5)*100);$('#spV').textContent=$('#sp').value+'%';
   $('#fs').value=Math.round((look.font_scale||1)*100);$('#fsV').textContent=$('#fs').value+'%';
   $('#sv').value=Math.round((sfx.volume||.6)*100);$('#svV').textContent=$('#sv').value+'%';
+  syncCapCtl();
+  if(saved.caption_style)segSet($('#stySeg'),saved.caption_style);
+  if(saved.title_overlay!=null)$('#titleOv').checked=!!saved.title_overlay;
 }
+function syncCapCtl(){const G=look.grad||{};
+  segSet($('#capFmt'),look.cap_format||'outline');$('#capWpl').value=String(look.words_per_line||0);$('#capLines').value=String(look.lines||1);
+  $('#capLsp').value=Math.round((look.line_spacing||1)*100);$('#capLspV').textContent=$('#capLsp').value+'%';
+  $('#capWsp').value=look.word_spacing||0;$('#capWspV').textContent=$('#capWsp').value;
+  $('#capHl').checked=look.highlight!==false;$('#capVoice').checked=look.streamer_first!==false;
+  $('#gradOn').checked=!!G.on;if(G.a)$('#gradA').value=G.a;if(G.b)$('#gradB').value=G.b;
+  if(look.box_color)$('#boxCol').value=look.box_color;if(look.box_text)$('#boxTxt').value=look.box_text;
+  $('#swapP').checked=!!layoutOpts.swap;
+  [$('#capLsp'),$('#capWsp'),$('#sp')].forEach(el=>el&&syncRange(el))}
+const GRADS=[['Neon pink','#ffd6f5','#d91aa8'],['Solar lime','#E3F9B5','#6E9420'],['Fire','#ffe259','#ff4e00'],['Ice','#e0f7ff','#3aa0ff'],['Gold','#fff3b0','#d4a017'],['Sunset','#ffd1a1','#e8336d']];
+function currentStyle(){return{look:{...look,effects:[...look.effects]},format,sfx:{...sfx},crop_mode:layout,layout:{...layoutOpts},
+  caption_position:+$('#pos').value/100,caption_style:segVal($('#stySeg')),title_overlay:$('#titleOv').checked}}
+async function saveDefaultStyle(st){try{await api('/api/settings',{method:'POST',body:JSON.stringify({default_style:st||currentStyle()})});
+  settingsCache.default_style=st||currentStyle();$('#styleNote').textContent='Saved. New projects start with this style.';toast('Saved as your default style')}catch(e){toast(e.message)}}
+function useDefaultStyle(){const d=(settingsCache||{}).default_style;if(!d)return toast('No default style yet. Set things up, then press Save as my default style.');
+  restoreLook(d);renderLook();renderLayouts&&renderLayouts();toast('Your default style is loaded')}
+function sdSaveDefault(){if(!sd)return;const st=currentStyle();st.look={...st.look,...sd.look,effects:[...(sd.look.effects||[])]};st.caption_style=sd.style;
+  st.crop_mode=sd.layout;st.layout={...st.layout,split:sd.split,swap:!!sd.swap};st.format=sd.format;st.caption_position=sd.capPos;st.title_overlay=$('#sdTitleOn').checked;
+  saveDefaultStyle(st);look=JSON.parse(JSON.stringify(st.look));layoutOpts=st.layout;syncCapCtl()}
 function initStudio(){
   initHoverPreviews();
   $('#bnglish').onchange=e=>{look.banglish=e.target.checked;renderLook()};
+  seg($('#capFmt'),v=>{look.cap_format=v;renderLook()});
+  $('#gradPresets').innerHTML=GRADS.map(g=>`<button class="chip" onclick="look.grad={on:true,a:'${g[1]}',b:'${g[2]}'};syncCapCtl();renderLook()"><i style="display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:6px;background:linear-gradient(${g[1]},${g[2]})"></i>${g[0]}</button>`).join('');
+  syncCapCtl();
   wmInit();renderLayouts();loadFillers();renderPalettes();renderPickers();renderFormats();renderFx();renderLook();loadFonts();loadSfx()}
 
 (async()=>{
@@ -2048,7 +2146,8 @@ function initStudio(){
   $('#contentSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>setContent(b.dataset.v));
   setContent(s.content||'general');if(s.game)$('#game').value=s.game;
   if(s.pre_roll!=null)$('#preRoll').value=String(s.pre_roll);if(s.post_roll!=null)$('#postRoll').value=String(s.post_roll);
-  restoreLook(s.look);initStudio();
+  restoreLook(s.default_style||s.look);initStudio();
+  if(s.default_style)$('#styleNote').textContent='Using your default style.';
   loadStatus();loadHistory();setInterval(loadStatus,15000);
   loadBadges();setInterval(loadBadges,30000);
   checkUpdate();setInterval(checkUpdate,6*3600e3);checkDisk();setInterval(checkDisk,10*60e3);

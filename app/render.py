@@ -596,7 +596,8 @@ LAYOUT_PANES = {
 
 
 class Compositor:
-    def __init__(self, mode, W, H, sw, sh, prim, two, any_face, split=0.5, hi="#ff7a1a", cuts=None, cam=None, manual=None, scene=None, shots=None):
+    def __init__(self, mode, W, H, sw, sh, prim, two, any_face, split=0.5, hi="#ff7a1a", cuts=None, cam=None, manual=None, scene=None, shots=None,
+                 swap=False):
         self.shots = shots if (shots and not manual and mode == "split2") else None
         if self.shots:
             scene = None
@@ -610,7 +611,10 @@ class Compositor:
         self.cam_track, self._t = None, 0.0
         self.manual = manual or {}  # pane -> [x, y, w, h] in 0-1 source units, set in the clip editor
         self.port = H >= W
+        self.swap = bool(swap)  # streamer on top / game below (the frames trade places; "top frame size" stays the top's size)
         self.split = min(0.7, max(0.3, split or 0.5))
+        if self.swap:
+            self.split = 1 - self.split
         self.hi = hex_bgr(hi)
         self.close = min(1.0, max(0.32, (prim.size if any_face else 0.3) * 3.2))
         self.medium = min(1.0, self.close * 1.6)
@@ -781,12 +785,15 @@ class Compositor:
 
     def _divider(self, out):
         t = max(4, int(min(self.W, self.H) * 0.006))
+        first = self.B if self.swap else self.A
         if self.port:
-            a = self.A[1]; out[a - t // 2:a + (t - t // 2)] = self.hi
+            a = first[1]; out[a - t // 2:a + (t - t // 2)] = self.hi
         else:
-            a = self.A[0]; out[:, a - t // 2:a + (t - t // 2)] = self.hi
+            a = first[0]; out[:, a - t // 2:a + (t - t // 2)] = self.hi
 
     def _stack(self, a, b):
+        if self.swap:
+            a, b = b, a
         return np.vstack([a, b]) if self.port else np.hstack([a, b])
 
     def frame(self, f, t, filler=None, t_out=None):
@@ -938,8 +945,9 @@ def _crowded(ws, i, span=2.5):
     return overlap or len(near) / span > 4.2
 
 
-def caption_groups(words, start, end, per):
-    """Caption chunks. Where two people talk at once, a chunk holds two lines (twice the words) so it stays readable."""
+def caption_groups(words, start, end, per, lines=1, crowd=True):
+    """Caption chunks of up to `per` words per line and `lines` lines. With crowd on (and one line), a chunk holds two lines
+    where two people talk at once; with the streamer's voice first that's off and only one voice is captioned."""
     ws = sorted((w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.3 and w["w"].strip()), key=lambda w: w["s"])
     if any(w.get("line") is not None for w in ws):  # captions written in the text editor: one caption per line, as typed
         groups, cur, line = [], [], None
@@ -954,24 +962,71 @@ def caption_groups(words, start, end, per):
             if len(g) > per + 1:  # a long line shows as two lines
                 g[(len(g) + 1) // 2]["br"] = True
         return groups
-    groups, cur, cap = [], [], per
+    lines = max(1, min(4, int(lines or 1)))
+    base = per * lines
+    dbl = crowd and lines == 1
+    groups, cur, cap = [], [], base
     for i, w in enumerate(ws):
         if not cur:
-            cap = per * 2 if _crowded(ws, i) else per
+            cap = per * 2 if dbl and _crowded(ws, i) else base
         if cur and (len(cur) >= cap or (w["s"] - start) - cur[-1]["e"] > 0.7 or re.search(r"[.?!।]$", cur[-1]["w"])
                     or (len(cur) >= 2 and cur[-1]["w"].endswith(",") and cap == per)):
             groups.append(cur); cur = []
-            cap = per * 2 if _crowded(ws, i) else per
+            cap = per * 2 if dbl and _crowded(ws, i) else base
         cur.append({"w": w["w"], "s": max(0, w["s"] - start), "e": max(0, w["e"] - start)})
     if cur:
         groups.append(cur)
-    for g in groups:  # two lines, split in the middle
-        if len(g) > per:
+    for g in groups:  # line breaks: every `per` words, or in the middle of a doubled chunk
+        if lines > 1:
+            for k in range(per, len(g), per):
+                g[k]["br"] = True
+        elif len(g) > per:
             g[(len(g) + 1) // 2]["br"] = True
         for a, b in zip(g, g[1:]):  # overlapping words would flicker; keep times in order
             if b["s"] < a["s"]:
                 b["s"] = a["s"]
     return groups
+
+
+def streamer_words(words, src, start, end, log=print):
+    """Keeps the streamer's voice when the game talks too: drops words much quieter than the clip's speech (game dialogue
+    usually sits under the mic in the mix) and, where two words overlap in time, keeps the louder one."""
+    ws = sorted((w for w in words if w["s"] >= start - 0.05 and w["e"] <= end + 0.3), key=lambda w: w["s"])
+    if len(ws) < 6:
+        return words
+    try:
+        loud, hop = clip_loudness(src, start, end - start)
+    except Exception:
+        return words
+    if loud is None or len(loud) < 4:
+        return words
+
+    def level(w):
+        a, b = int(max(0, w["s"] - start) / hop), int(max(0, w["e"] - start) / hop) + 1
+        seg = loud[a:max(a + 1, b)]
+        return float(np.max(seg)) if len(seg) else -90.0
+    lv = {id(w): level(w) for w in ws}
+    med = float(np.median(list(lv.values())))
+    keep = [w for w in ws if lv[id(w)] >= med - 10]
+    out = []
+    for w in keep:  # two voices at once: the louder one wins, so captions never stack
+        if out and w["s"] < out[-1]["e"] - 0.08:
+            if lv[id(w)] > lv[id(out[-1])]:
+                out[-1] = w
+            continue
+        out.append(w)
+    if len(out) < len(ws) * 0.6:  # too much would go: the quiet voice is probably the streamer, keep everything
+        return words
+    if len(out) < len(ws):
+        log(f"Captions follow the streamer's voice ({len(ws) - len(out)} quieter or overlapping words left out)")
+    other = [w for w in words if not (start - 0.05 <= w["s"] and w["e"] <= end + 0.3)]
+    return sorted(other + out, key=lambda w: w["s"])
+
+
+def _mix(a, b, t):
+    ca, cb = hex_bgr(a), hex_bgr(b)
+    bgr = [int(round(x + (y - x) * t)) for x, y in zip(ca, cb)]
+    return "#%02x%02x%02x" % (bgr[2], bgr[1], bgr[0])
 
 
 def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, lang, wm):
@@ -990,6 +1045,7 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
          "[V4+ Styles]",
          "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
          f"Style: Cap,{font},{fs:.0f},{ass_col(txt)},{ass_col(hi)},{ass_col(ol)},&H64000000,0,0,0,0,100,100,0,0,1,{s['outline'] * sc:.1f},{2 * sc:.1f},5,{ml},{ml},0,1",
+         f"Style: CapBox,{font},{fs:.0f},{ass_col(txt)},{ass_col(hi)},{ass_col(lk.get('box_color') or '#141D25')},{ass_col(lk.get('box_color') or '#141D25')},0,0,0,0,100,100,0,0,3,{14 * sc:.1f},0,5,{ml},{ml},0,1",
          f"Style: Title,{tfont},{70 * sc * tsc:.0f},{ass_col(tfg)},{ass_col(tfg)},{ass_col(tbg)},{ass_col(tbg)},0,0,0,0,100,100,0,0,3,{16 * sc * tsc:.1f},0,8,{int(W * .06)},{int(W * .06)},{int(H * .11)},1",
          f"Style: WM,Montserrat ExtraBold,{wm['size'] * 0.42:.0f},&H1FFFFFFF,&H1FFFFFFF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,1,{1.5 * sc:.1f},{1.5 * sc:.1f},4,0,0,0,1",
          "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
@@ -1004,39 +1060,92 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
         tpos = lk.get("text_pos") or {}
         cx = min(0.95, max(0.05, float(tpos.get("cap_x", 0.5))))
         pos = f"\\pos({int(W * cx)},{int(H * cap_pos)})"
+        fmt = lk.get("cap_format") or "outline"  # outline | box | word_box | shadow | glow
+        boxc = lk.get("box_color") or (hi if fmt == "word_box" else "#141D25")
+        grad = lk.get("grad") or {}
+        g_on = bool(grad.get("on")) and fmt != "word_box"
+        ga, gb = grad.get("a") or txt, grad.get("b") or hi
+        lsp = min(2.5, max(0.7, float(lk.get("line_spacing") or 1.0)))
+        wsp = max(0.0, min(80.0, float(lk.get("word_spacing") or 0))) * sc
+        gap = f"{{\\fsp{wsp:.0f}}} {{\\fsp0}}" if wsp >= 1 else " "
+        line_h = fs * 1.18 * lsp
+        x0 = int(W * cx)
+        bord, shad = s["outline"] * sc, 2 * sc
+        base_tag = {"outline": "", "box": f"\\3c{ass_col(boxc)}\\4c{ass_col(boxc)}",
+                    "word_box": "", "shadow": f"\\bord0\\shad{6 * sc:.0f}\\4a&H40&",
+                    "glow": ""}[fmt] if fmt in ("outline", "box", "word_box", "shadow", "glow") else ""
+        style_name = "CapBox" if fmt == "box" else "Cap"
+        hl = lk.get("highlight", True) is not False
         for gi, g in enumerate(groups):
             g_end = g[-1]["e"] + 0.25
             if gi + 1 < len(groups) and groups[gi + 1][0]["s"] - g[-1]["e"] < 0.8:
                 g_end = groups[gi + 1][0]["s"]
             g_end = min(g_end, dur)
             words = [clean(w["w"].upper() if s["upper"] else w["w"], lk.get("mask_swears")) for w in g]
+            rows, cur = [], []  # word indexes per screen line
+            for j in range(len(g)):
+                if g[j].get("br") and cur:
+                    rows.append(cur); cur = []
+                cur.append(j)
+            rows.append(cur)
+            y_mid = H * cap_pos
             for k, w in enumerate(g):
                 a = g[0]["s"] if k == 0 else w["s"]
                 b = g[k + 1]["s"] if k + 1 < len(g) else g_end
                 if b <= a:
                     continue
-                parts = []
-                for j, ww in enumerate(words):
-                    if g[j].get("br"):
-                        parts.append("\\N")
-                    if j == k:
-                        anim = "\\t(0,90,\\fscx122\\fscy122)\\t(90,180,\\fscx112\\fscy112)" if bounce else ""
-                        parts.append(f"{{\\c{hc}{anim}}}{_esc(ww)}{{\\r}}")
-                    else:
-                        parts.append(_esc(ww))
                 pop = "\\fscx92\\fscy92\\t(0,70,\\fscx100\\fscy100)" if k == 0 else ""
-                L.append(f"Dialogue: 0,{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}}}" + " ".join(parts).replace(" \\N ", "\\N"))
+                anim = "\\t(0,90,\\fscx122\\fscy122)\\t(90,180,\\fscx112\\fscy112)" if bounce else ""
+                for ri, row in enumerate(rows):
+                    y = int(y_mid + (ri - (len(rows) - 1) / 2) * line_h)
+                    pos = f"\\pos({x0},{y})"
+
+                    def text(active_tag, other_tag=""):
+                        if not hl and not active_tag.startswith("\\1a"):  # no highlight: the spoken word looks like the rest
+                            active_tag = other_tag
+                        out = []
+                        for j in row:
+                            ww = _esc(words[j])
+                            out.append(f"{{{active_tag}{anim}}}{ww}{{\\r{other_tag}}}" if j == k else (f"{{{other_tag}}}{ww}" if other_tag else ww))
+                        return gap.join(out)
+                    if fmt == "word_box":  # a coloured box behind the word being said, dark text on it
+                        L.append(f"Dialogue: 0,{ts(a)},{ts(b)},CapBox,,0,0,0,,{{{pos}{pop}\\1a&HFF&\\3a&HFF&\\3c{ass_col(boxc)}}}"
+                                 + text("\\1a&HFF&\\3a&H00&", "\\1a&HFF&\\3a&HFF&"))
+                        L.append(f"Dialogue: 1,{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}}}" + text(f"\\c{ass_col(lk.get('box_text') or '#101010')}\\bord0\\shad0"))
+                        continue
+                    if fmt == "glow":  # soft coloured glow behind sharp letters
+                        glc = ass_col(lk.get("glow_color") or (gb if g_on else hi))
+                        gt = f"\\1a&HFF&\\3c{glc}\\bord{max(6, bord * 1.4):.0f}\\blur{8 * sc:.0f}\\shad0"
+                        L.append(f"Dialogue: 0,{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}{gt}}}" + text(gt, gt))
+                        if not g_on:
+                            st_ = f"\\bord{max(2, bord * 0.45):.0f}\\shad0"
+                            L.append(f"Dialogue: 1,{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}{st_}}}" + text(f"\\c{hc}", st_))
+                            continue
+                    if not g_on:
+                        L.append(f"Dialogue: 0,{ts(a)},{ts(b)},{style_name},,0,0,0,,{{{pos}{pop}{base_tag}}}" + text(f"\\c{hc}", base_tag))
+                        continue
+                    # gradient fill: the outline once (glow already drew its own), then the letters in thin horizontal bands
+                    if fmt != "glow":
+                        L.append(f"Dialogue: 0,{ts(a)},{ts(b)},{style_name},,0,0,0,,{{{pos}{pop}{base_tag}\\1a&HFF&}}"
+                                 + text("\\1a&HFF&", base_tag + "\\1a&HFF&"))
+                    top, bands = y - fs * 0.4, 24  # the letters' cap height, so the full gradient shows
+                    for bi in range(bands):
+                        y1, y2 = top + fs * 0.8 * bi / bands, top + fs * 0.8 * (bi + 1) / bands
+                        col = ass_col(_mix(ga, gb, bi / (bands - 1)))
+                        y_end = int(y + fs) if bi < bands - 1 else int(y + fs)  # each band runs to the bottom; the next one paints over it
+                        L.append(f"Dialogue: {1 + bi},{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}\\bord0\\shad0\\c{col}"
+                                 f"\\clip(0,{0 if bi == 0 else int(y1)},{W},{y_end})}}" + text(f"\\c{hc}" if hl else f"\\c{col}", f"\\bord0\\shad0\\c{col}"))
     if title_on and title:
         tp = (lk.get("text_pos") or {}).get("title")
         place = ""
         if tp:  # placed by dragging in the preview: centre of the title box goes there
             place = f"\\an5\\pos({int(W * float(tp.get('x', 0.5)))},{int(H * float(tp.get('y', 0.13)))})"
-        L.append(f"Dialogue: 1,{ts(0)},{ts(min(3.0, dur))},Title,,0,0,0,,{{{place}\\fad(120,200)}}{_esc(clean(title, lk.get('mask_swears')))}")
+        L.append(f"Dialogue: 20,{ts(0)},{ts(min(3.0, dur))},Title,,0,0,0,,{{{place}\\fad(120,200)}}{_esc(clean(title, lk.get('mask_swears')))}")
     if wm.get("on"):
         x = wm["x"] + wm["w"] + int(wm["size"] * 0.18) if wm["pos"] in ("tl", "bl") else wm["x"] - int(wm["size"] * 0.18)
         al = 4 if wm["pos"] in ("tl", "bl") else 6
         aa = f"{int((1 - wm.get('opacity', 0.92)) * 255):02X}"
-        L.append(f"Dialogue: 2,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})\\1a&H{aa}&\\3a&H{aa}&}}"
+        L.append(f"Dialogue: 21,{ts(0)},{ts(dur)},WM,,0,0,0,,{{\\an{al}\\pos({x},{wm['y'] + wm['size'] // 2})\\1a&H{aa}&\\3a&H{aa}&}}"
                  + _esc(wm.get("text", HANDLE)))
     pathlib.Path(path).write_text("\n".join(L) + "\n", "utf-8-sig")
 
@@ -1242,7 +1351,11 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
     hi = look.get("hi_color") or st["hi"]
     mode = opts.get("crop_mode") or "face"
     lay = opts.get("layout") or {}
-    per = st["words"]
+    per = int(look.get("words_per_line") or st["words"])
+    nlines = int(look.get("lines") or 1)
+    voice_first = look.get("streamer_first", True) is not False
+    if voice_first and style != "none" and not any(w.get("line") is not None for w in words):
+        words = streamer_words(words, src, start, end, log)
     orig_words = words
     src_dur = dur
     plan = None
@@ -1255,9 +1368,9 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
     if plan:
         dur = sum(b - a for a, b in plan)
         words = jump_words(words, start, plan)
-        groups = caption_groups(words, start, start + dur, per)
+        groups = caption_groups(words, start, start + dur, per, nlines, not voice_first)
     else:
-        groups = caption_groups(words, start, end, per)
+        groups = caption_groups(words, start, end, per, nlines, not voice_first)
 
     need_faces = mode in ("face", "split2", "speakers2", "gameplay", "pip", "multicam")
     shots = None
@@ -1297,7 +1410,7 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
         cam = None
     comp = Compositor(mode, W, H, sw, sh, prim, two, any_face, lay.get("split", 0.5), hi,
                       multicam_cuts(groups, dur) if mode == "multicam" else None, cam,
-                      (opts.get("framing") or {}).get("panes"), scene, shots)
+                      (opts.get("framing") or {}).get("panes"), scene, shots, bool(lay.get("swap")))
     if cam and need_faces:
         comp.cam_track = cam_track(samples, rate, cam)
     fx = Effects(look.get("effects"), W, H, dur, hi)
@@ -1419,7 +1532,7 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
         thumb = pathlib.Path(out_mp4).with_suffix(".jpg")
         media.thumb(out_mp4, min(1.2, dur / 2), thumb)
         dh_, dw_ = dh, dw
-        auto = Compositor(comp.mode, W, H, sw, sh, prim, two, any_face, lay.get("split", 0.5), hi, comp.cuts, cam, None)
+        auto = Compositor(comp.mode, W, H, sw, sh, prim, two, any_face, lay.get("split", 0.5), hi, comp.cuts, cam, None, swap=bool(lay.get("swap")))
         auto.mode, auto.cam_track = comp.mode, comp.cam_track
         return {"duration": round(dur, 1), "layout_used": comp.mode, "faces": any_face, "encoder": enc_label, "cuts": plan,
                 "framing": {"layout": comp.mode, "panes": auto.auto_framing(dw_, dh_, src_dur / 2), "cam": cam,
