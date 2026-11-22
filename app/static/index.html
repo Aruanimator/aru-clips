@@ -628,6 +628,11 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .ppwhen .inp{width:auto;flex:1;min-width:200px;color-scheme:dark}
 .pubs .sched{background:#C2F54C1a;color:var(--accent);cursor:pointer}.pubs .sched:hover{background:#4a2026;color:#ffb3b3}
 #ppWhen button{white-space:nowrap}
+.stayask{display:inline-flex;align-items:center;gap:5px;background:#263443}.stayin{width:52px;background:#101820;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:1px 4px;font-size:11px}
+.stayask button{font-size:11px;color:var(--accent)}.stayask a{color:var(--mute);text-decoration:none}
+.posttpl{margin-top:12px;font-size:13px}.posttpl summary{cursor:pointer;color:var(--mute)}.posttpl .field{margin-top:10px}
+.topbanner{display:flex;align-items:center;gap:10px;margin:14px auto 0;max-width:1100px;padding:10px 14px;border-radius:12px;background:#C2F54C14;border:1px solid #C2F54C40;font-size:13px}
+.topbanner span{flex:1}.topbanner.warn{background:#ffb34714;border-color:#ffb34755}
 </style>
 </head>
 <body>
@@ -646,6 +651,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 </aside>
 
 <main>
+  <div class="topbanner" id="updBanner" style="display:none"><span>A new version of Aru Clips is ready.</span><a class="btn sm pri" id="updLink" target="_blank">Download</a><button class="btn sm" onclick="this.parentNode.style.display='none'">Later</button></div>
+  <div class="topbanner warn" id="diskBanner" style="display:none"><span id="diskTxt"></span><button class="btn sm pri" onclick="openSpace()">Free up space</button><button class="btn sm" onclick="this.parentNode.style.display='none'">Hide</button></div>
   <!-- NEW PROJECT -->
   <section id="newView" class="wrap wide">
     <div class="banner" id="keyBanner">Add your free Groq API key for fast AI. Without one, everything runs locally on your PC (slower). <button class="btn" onclick="openSettings()">Add key</button></div>
@@ -928,6 +935,17 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
   </section>
 </main>
 
+<!-- FREE UP SPACE -->
+<div class="modal" id="spaceModal">
+  <div class="mbox" style="max-width:620px">
+    <h2>Free up space</h2>
+    <p class="hint" id="spHint"></p>
+    <p class="hint">Deleting a project's downloaded video keeps all its finished clips. You just can't re-render those clips afterwards.</p>
+    <div id="spList" class="wlist"></div>
+    <div class="mrow"><button class="btn" onclick="$('#spaceModal').classList.remove('on')">Close</button></div>
+  </div>
+</div>
+
 <!-- STREAMERS -->
 <div class="modal" id="watchModal">
   <div class="mbox" style="max-width:640px">
@@ -950,6 +968,16 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <input type="number" class="inp rnum" id="apMin" min="0" max="100" value="80" onchange="saveAuto()"><span>or more to</span>
       <span id="apPlats" class="applats"></span>
     </div>
+    <div class="autopub" style="background:transparent">
+      <span>Keep posts on each platform at least</span><input type="number" class="inp rnum" id="apGap" min="0" max="720" value="30" onchange="saveAuto()"><span>minutes apart (0 = no spacing). Extra clips get scheduled.</span>
+    </div>
+    <details class="posttpl"><summary>Post text template</summary>
+      <div class="field"><label>Description <small>{hook} {streamer} {game} {hashtags} {title}</small></label><textarea class="inp" id="ptTpl" rows="3"></textarea></div>
+      <div class="field"><label>Extra YouTube tags <small>comma-separated, added to every post</small></label><input class="inp" id="ptTags" placeholder="streamer clips, gaming clips"></div>
+      <div class="field"><label>YouTube category</label><select class="inp" id="ptCat"><option value="20">Gaming</option><option value="24">Entertainment</option><option value="22">People &amp; Blogs</option></select>
+        <small class="hint">The "Game title" field (Grand Theft Auto VI) isn't available to apps; set it once in YouTube Studio.</small></div>
+      <button class="btn" onclick="savePostTpl()">Save post text</button>
+    </details>
     <div id="pubList" class="publist"></div>
     <div class="mrow"><button class="btn" onclick="$('#pubModal').classList.remove('on')">Close</button></div>
   </div>
@@ -963,10 +991,10 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
     <div id="ppPost" class="pppost" style="display:none">
       <label>Title <small>YouTube title and the X post · <span id="ppTN"></span>/100</small></label>
       <input class="inp" id="ppT" maxlength="100" oninput="ppCount()">
-      <label>Caption <small>Instagram, TikTok and the YouTube description · <span id="ppCN"></span></small></label>
-      <textarea class="inp" id="ppC" rows="4" oninput="ppCount()"></textarea>
-      <label>Hashtags</label>
-      <input class="inp" id="ppH" placeholder="#gta6 #gaming" oninput="ppCount()">
+      <label>Description <small>YouTube description, Instagram and TikTok caption · <span id="ppCN"></span></small></label>
+      <textarea class="inp" id="ppC" rows="5" oninput="ppCount()"></textarea>
+      <label>Tags <small>YouTube only, comma-separated</small></label>
+      <input class="inp" id="ppH" placeholder="GTA 6, GTA VI, Kai Cenat" oninput="ppCount()">
       <small class="hint" id="ppX"></small>
     </div>
     <div id="ppPlats" class="ppplats"></div>
@@ -1021,6 +1049,15 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <div class="hint" id="tasteInfo"></div>
     </div>
     <div class="f field"><label>Save clips to</label><input class="inp" id="sOut"></div>
+    <div class="f field"><label>Help and backup</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="copyDiag()">Copy diagnostics</button>
+        <button class="btn" onclick="openSpace()">Free up space</button>
+        <a class="btn" id="bkLink" href="#" onclick="event.preventDefault();downloadBackup()">Back up ratings &amp; settings</a>
+        <button class="btn" onclick="$('#rsIn').click()">Restore a backup</button><input type="file" id="rsIn" accept=".zip" hidden>
+      </div>
+      <div class="hint">Diagnostics copies the app version, recent logs and errors (never your keys) so you can paste them into a bug report.</div>
+    </div>
     <div class="mrow"><button class="btn danger" style="margin-right:auto" onclick="uninstallApp()">Uninstall Aru Clips…</button><button class="btn" onclick="closeSettings()">Cancel</button><button class="btn pri" onclick="saveSettings()">Save</button></div>
   </div>
 </div>
@@ -2014,6 +2051,7 @@ function initStudio(){
   restoreLook(s.look);initStudio();
   loadStatus();loadHistory();setInterval(loadStatus,15000);
   loadBadges();setInterval(loadBadges,30000);
+  checkUpdate();setInterval(checkUpdate,6*3600e3);checkDisk();setInterval(checkDisk,10*60e3);
 })();
 
 // ======================================================================= watermark (main page)
@@ -2175,7 +2213,12 @@ const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['yo
 function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)return'';
   const retry=jid?`publishOne(${c.n},'${jid}')`:`publishOne(${c.n})`;
   return `<div class="pubs">${k.map(x=>{const s=p[x];
-    if(s.state==='done')return `<a class="done" href="${esc(s.url||'#')}" target="_blank" title="Open it">✓ On ${PN[x]} ↗</a>`;
+    if(s.state==='done'){let extra='';
+      if(x==='youtube'){const vid=((s.url||'').match(/shorts\/([\w-]+)/)||[])[1];const studio=vid?`https://studio.youtube.com/video/${vid}/analytics/tab-overview/period-default`:'https://studio.youtube.com';
+        if(c.stay!=null)extra=`<span class="${c.stay>=50?'done':'error'}" title="${c.stay<50?'Under 50%: rework the opening next time':'A keeper'}">Stayed ${Math.round(c.stay)}%</span>`;
+        else if(Date.now()/1000-(s.at||0)>=3600)extra=`<span class="stayask">Stayed to watch <input type="number" min="0" max="100" class="stayin" id="stay-${jid||current}-${c.n}" placeholder="%"> <button onclick="saveStay('${jid||current}',${c.n})">Save</button> <a href="${studio}" target="_blank">Studio ↗</a></span>`;
+        else extra=`<span class="queued" title="Check 'Stayed to watch' in YouTube Studio after an hour">Check stay rate at ${new Date(((s.at||0)+3600)*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span>`}
+      return `<a class="done" href="${esc(s.url||'#')}" target="_blank" title="Open it">✓ On ${PN[x]} ↗</a>`+extra}
     if(s.state==='error')return `<span class="error" title="${esc(s.error||'')}\n\nClick to try again" onclick="${retry}">✕ ${PN[x]} failed · retry</span>`;
     if(s.state==='scheduled')return `<span class="sched" title="Click to cancel" onclick="unschedule('${jid||current}',${c.n},'${x}')">⏰ ${PN[x]} · ${whenTxt(s.when)}</span>`;
     if(s.state==='uploading'&&s.stage==='processing')return `<span class="uploading"><b class="pspin"></b>${PN[x]} is processing it</span>`;
@@ -2183,6 +2226,9 @@ function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)r
     return `<span class="queued">Waiting · ${PN[x]}</span>`}).join('')}</div>`
     +(k.some(x=>p[x].state==='error')?`<div class="puberr">${esc(Object.values(p).find(v=>v.state==='error').error||'')}</div>`:'')}
 let pubPrev={};
+async function saveStay(jid,n){const v=+(document.getElementById(`stay-${jid}-${n}`)||{}).value;if(!(v>=0&&v<=100))return toast('Type the percentage from YouTube Studio');
+  try{const r=await api(`/api/jobs/${jid}/clips/${n}/stay`,{method:'POST',body:JSON.stringify({pct:v})});toast(v>=50?`Saved. Counted as ${r.stars} stars for learning`:`Saved. Under 50%: rework the opening next time (counted as ${r.stars} stars)`)}catch(e){toast(e.message)}
+  jid===current?refresh(true):loadBoard()}
 function pubUpdate(clips,jid){clips.forEach(c=>{const key=(jid||current)+':'+c.n;
     Object.entries(c.published||{}).forEach(([x,s])=>{const k2=key+':'+x,was=pubPrev[k2];
       if(was&&was!==s.state){if(s.state==='done')toast(`Clip ${c.n} is on ${PN[x]} ✓`);else if(s.state==='error')toast(`Clip ${c.n} didn't publish to ${PN[x]}: ${(s.error||'').slice(0,140)}`)}
@@ -2192,24 +2238,26 @@ function pubUpdate(clips,jid){clips.forEach(c=>{const key=(jid||current)+':'+c.n
 
 let pubCache=null;
 async function pubInfo(){pubCache=await api('/api/publish');return pubCache}
-function ppCount(){const t=$('#ppT').value,c=$('#ppC').value,h=$('#ppH').value.trim();$('#ppTN').textContent=t.length;$('#ppCN').textContent=c.length+(h?h.length+2:0);
-  const x=(t+(h?' '+h.split(/[\s,]+/).slice(0,3).join(' '):'')).length;$('#ppX').textContent=`The X post is the title plus up to 3 hashtags (${x}/270).`}
+function ppCount(){const t=$('#ppT').value,c=$('#ppC').value;$('#ppTN').textContent=t.length;$('#ppCN').textContent=c.length;
+  const tags=(c.match(/#\w+/g)||[]);const dup=tags.filter((x,i)=>tags.findIndex(y=>y.toLowerCase()===x.toLowerCase())!==i);
+  const x=(t+(tags.length?' '+tags.slice(0,3).join(' '):'')).length;
+  $('#ppX').textContent=`The X post is the title plus the first 3 hashtags (${x}/270).`+(dup.length?` Repeated hashtag: ${dup.join(' ')} — use each once.`:'')}
 async function pickPlatforms(title,hint,go,minVal,clip){const p=await pubInfo().catch(()=>null);if(!p)return;
   if(!PL.some(k=>p[k].connected)){toast('Connect an account first');openPub();return}
   $('#ppTitle').textContent=title;
   $('#ppHint').innerHTML=esc(hint)+(minVal!=null?`<div style="display:flex;align-items:center;gap:8px;margin-top:10px">Clips scoring at least <input type="number" class="inp rnum" id="ppMin" min="0" max="100" value="${minVal}"></div>`:'');
   $('#ppPost').style.display=clip?'':'none';
-  if(clip){const po=clip.post||{};$('#ppT').value=po.title||clip.title||'';$('#ppC').value=po.caption!=null?po.caption:(clip.caption||'');
-    $('#ppH').value=(po.hashtags||clip.hashtags||[]).join(' ');ppCount()}
+  if(clip){$('#ppT').value=clip.title||'';$('#ppC').value='';$('#ppH').value='';ppCount();
+    api(`/api/jobs/${clip._jid||current}/clips/${clip.n}/post`).then(po=>{$('#ppT').value=po.title||'';$('#ppC').value=po.description||'';$('#ppH').value=(po.tags||[]).join(', ');ppCount()}).catch(()=>{})}
   $('#ppPlats').innerHTML=PL.map(k=>`<label class="${p[k].connected?'':'dis'}"><input type="checkbox" value="${k}" ${p[k].connected?'checked':'disabled'}> ${p[k].name}${p[k].user?' · '+esc(p[k].user):''}${p[k].connected?'':' (not connected)'}</label>`).join('');
   segSet($('#ppWhen'),'now');$('#ppAt').style.display='none';$('#ppAtHint').style.display='none';$('#ppGo').textContent='Publish';
   const d=new Date(Date.now()+3600e3);d.setMinutes(0,0,0);$('#ppAt').value=new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,16);
   $('#ppAt').min=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,16);
   $('#ppGo').onclick=async()=>{const pl=[...$('#ppPlats').querySelectorAll('input:checked')].map(i=>i.value);if(!pl.length)return toast('Pick a platform');
     let when=null;if(segVal($('#ppWhen'))==='later'){const t=new Date($('#ppAt').value).getTime();if(!t||t<Date.now()+60e3)return toast('Pick a time at least a minute from now');when=Math.round(t/1000)}
-    pubWhen=when;$('#pubPick').classList.remove('on');await go(pl,minVal!=null?+$('#ppMin').value||0:null,clip?{title:$('#ppT').value,caption:$('#ppC').value,hashtags:$('#ppH').value}:null)};
+    pubWhen=when;$('#pubPick').classList.remove('on');await go(pl,minVal!=null?+$('#ppMin').value||0:null,clip?{title:$('#ppT').value,description:$('#ppC').value,tags:$('#ppH').value}:null)};
   $('#pubPick').classList.add('on')}
-function publishOne(n,jid){jid=jid||current;const c=jid===current?clipBy(n):boardClips.find(x=>x.jid===jid&&x.n===n);
+function publishOne(n,jid){jid=jid||current;const c0=jid===current?clipBy(n):boardClips.find(x=>x.jid===jid&&x.n===n);const c=c0?Object.assign({},c0,{_jid:jid}):null;
   pickPlatforms('Publish clip','Edit the post text if you like. The video itself stays the same.',(pl,_,post)=>pubSend(jid,{ns:[n],platforms:pl,post}),null,c)}
 function publishSel(){const ns=($('#clips')._clips||[]).filter(c=>selClips.has(c.n)&&c.file&&!c.pending).map(c=>c.n);if(!ns.length)return;
   pickPlatforms(`Publish ${ns.length} clip${ns.length===1?'':'s'}`,'They upload one after another in the background, each with its own caption. To change one clip\'s text first, use Publish on that clip.',pl=>pubSend(current,{ns,platforms:pl}))}
@@ -2221,7 +2269,8 @@ seg($('#ppWhen'),v=>{const l=v==='later';$('#ppAt').style.display=l?'':'none';$(
 const whenTxt=t=>new Date(t*1000).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 async function unschedule(jid,n,p){if(!confirm(`Cancel the scheduled ${PN[p]} post?`))return;try{await api(`/api/jobs/${jid}/clips/${n}/unschedule`,{method:'POST',body:JSON.stringify({platform:p})});toast('Scheduled post cancelled')}catch(e){toast(e.message)}jid===current?refresh(true):loadBoard()}
 async function pubSend(jid,body){if(pubWhen){body.when=pubWhen;pubWhen=null}try{const r=await api(`/api/jobs/${jid}/publish`,{method:'POST',body:JSON.stringify(body)});
-    toast(body.when?`Scheduled ${r.queued} clip${r.queued===1?'':'s'} for ${whenTxt(body.when)}`:`Publishing ${r.queued} clip${r.queued===1?'':'s'}… Follow it in the Publishing tab.`);setTimeout(loadBadges,800);
+    const spaced=(r.skipped||[]).filter(x=>/apart/.test(x)).length;
+    toast(body.when?`Scheduled ${r.queued} clip${r.queued===1?'':'s'} for ${whenTxt(body.when)}`:spaced?`Publishing now, ${spaced} scheduled later to keep posts spaced out. See the Publishing tab.`:`Publishing ${r.queued} clip${r.queued===1?'':'s'}… Follow it in the Publishing tab.`);setTimeout(loadBadges,800);
     if(jid===current){clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}else loadBoard()}catch(e){toast(e.message)}}
 
 // ======================================================================= publishing accounts
@@ -2250,7 +2299,8 @@ const PUBHELP={
 async function openPub(){$('#pubModal').classList.add('on');renderPub()}
 async function renderPub(){let p;try{p=await pubInfo()}catch(e){return toast(e.message)}
   $('#pubRedirect').textContent=p.redirect;
-  $('#apOn').checked=!!p.auto.on;$('#apMin').value=p.auto.min_score;
+  $('#apOn').checked=!!p.auto.on;$('#apMin').value=p.auto.min_score;$('#apGap').value=p.auto.space_min??30;
+  api('/api/settings').then(st=>{$('#ptTpl').value=st.post_template||"{hook}\n🎥 Clip from {streamer}'s {game}stream. All credit to {streamer}.\n{hashtags}";$('#ptTags').value=st.post_tags||'';$('#ptCat').value=st.yt_category||'20'}).catch(()=>{});
   $('#apPlats').innerHTML=PL.map(k=>`<label><input type="checkbox" value="${k}" ${p.auto.platforms.includes(k)?'checked':''} onchange="saveAuto()"> ${PN[k]}</label>`).join('');
   $('#pubList').innerHTML=PL.map(k=>{const a=p[k],h=PUBHELP[k];
     return `<div class="pitem"><div class="ph"><b>${a.name}</b>${a.connected?`<span class="ok">✓ Connected${a.user?' as '+esc(a.user):''}</span><button class="btn sm" onclick="pubDisc('${k}')">Disconnect</button>`:''}</div>
@@ -2270,8 +2320,9 @@ async function pubConnect(k){try{await pubSaveApp(k,true);const r=await api(`/ap
 async function pubToken(k){const v=$('#pt-'+k).value.trim();if(!v)return toast('Paste the token first');
   try{await pubSaveApp(k,true);const r=await api(`/api/publish/${k}/token`,{method:'POST',body:JSON.stringify({token:v})});toast(`Connected as ${r.user}`);renderPub()}catch(e){toast(e.message)}}
 async function pubDisc(k){if(!confirm(`Disconnect ${PN[k]}?`))return;await api(`/api/publish/${k}/disconnect`,{method:'POST'}).catch(()=>{});renderPub()}
+async function savePostTpl(){try{await api('/api/settings',{method:'POST',body:JSON.stringify({post_template:$('#ptTpl').value,post_tags:$('#ptTags').value,yt_category:$('#ptCat').value})});toast('Post text saved')}catch(e){toast(e.message)}}
 async function saveAuto(){const pl=[...$('#apPlats').querySelectorAll('input:checked')].map(i=>i.value);
-  try{await api('/api/publish/auto',{method:'POST',body:JSON.stringify({on:$('#apOn').checked,min_score:+$('#apMin').value||80,platforms:pl})});
+  try{await api('/api/publish/auto',{method:'POST',body:JSON.stringify({on:$('#apOn').checked,min_score:+$('#apMin').value||80,platforms:pl,space_min:Math.max(0,+$('#apGap').value||0)})});
     toast($('#apOn').checked?(pl.length?`Auto-publish on: clips scoring ${+$('#apMin').value}+ go to ${pl.map(x=>PN[x]).join(', ')}`:'Auto-publish is on, now tick the platforms'):'Auto-publish off')}catch(e){toast(e.message)}}
 
 // ======================================================================= clip board (every project)
@@ -2340,6 +2391,22 @@ async function tasteInfo(){try{const t=await api('/api/taste');const w=t.weights
   $('#tasteInfo').innerHTML=(t.n?`${t.n} rating${t.n===1?'':'s'} so far. `:'Rate clips with the stars on each card. ')+
     (t.learning?`Learned weights: ${parts}. Audience signals count ${Math.round(t.blend*100)}%. `:`Learning starts after ${t.min} ratings. Now: ${parts}, audience ${Math.round(t.blend*100)}%. `)+
     (t.n?'<a href="#" onclick="event.preventDefault();tasteReset()">Forget my ratings</a>':'')}catch(e){}}
+async function copyDiag(){try{const r=await api('/api/diagnostics');try{await navigator.clipboard.writeText(r.text);toast('Diagnostics copied. Paste them into your bug report.')}
+  catch(e){toast('Saved to '+r.file)}}catch(e){toast(e.message)}}
+async function downloadBackup(){try{const r=await fetch('/api/backup');if(!r.ok)throw new Error('Backup failed');const b=await r.blob();const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'aru-clips-backup.zip';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);toast('Backup saved to your downloads')}catch(e){toast(e.message)}}
+$('#rsIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;if(!confirm('Restore this backup? It replaces your ratings, streamers and settings (keys stay as they are).'))return;
+  const fd=new FormData();fd.append('file',f);try{const r=await fetch('/api/restore',{method:'POST',body:fd});const j=await r.json();if(!r.ok)throw new Error(j.detail||'Restore failed');toast('Backup restored');closeSettings()}catch(err){toast(err.message)}e.target.value=''};
+async function openSpace(){$('#spaceModal').classList.add('on');$('#spList').innerHTML='<div class="hint">Measuring…</div>';
+  let st;try{st=await api('/api/storage')}catch(e){return toast(e.message)}
+  $('#spHint').textContent=`${st.free_gb} GB free of ${st.total_gb} GB on the drive your clips are saved to.`;
+  $('#spList').innerHTML=st.sources.length?st.sources.map(r=>`<div class="witem"><div class="sp"><b>${esc(r.title)}</b><small>${r.gb} GB of downloaded video · ${r.clips} clips · ${r.status}</small></div>
+    <button class="btn sm danger" onclick="dropSource('${r.id}',this)">Delete video (${r.gb} GB)</button></div>`).join(''):'<div class="hint">No downloaded videos to clear.</div>'}
+async function dropSource(id,btn){if(!confirm('Delete this project\'s downloaded video? Its clips stay.'))return;btn.disabled=true;
+  try{const r=await api(`/api/jobs/${id}/drop-source`,{method:'POST'});toast(`Freed ${r.freed_gb} GB`);openSpace();checkDisk()}catch(e){toast(e.message);btn.disabled=false}}
+async function checkDisk(){try{const st=await api('/api/storage');$('#diskBanner').style.display=st.low?'':'none';
+  $('#diskTxt').textContent=`Only ${st.free_gb} GB free on the drive your clips are saved to. Long streams need 5–10 GB each.`}catch(e){}}
+async function checkUpdate(){try{const u=await api('/api/update');if(u.newer){$('#updLink').href=u.url;$('#updBanner').style.display=''}}catch(e){}}
 async function uninstallApp(){try{await api('/api/uninstall',{method:'POST'});closeSettings();toast('Follow the Uninstall Aru Clips window on your screen')}catch(e){toast(e.message)}}
 async function tasteReset(){if(!confirm('Forget all your ratings and go back to the default scoring?'))return;await api('/api/taste/reset',{method:'POST'});tasteInfo()}
 

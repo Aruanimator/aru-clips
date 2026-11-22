@@ -24,15 +24,18 @@ class PublishError(RuntimeError):
 
 # ------------------------------------------------------------------ storage
 def load():
+    import secure
     try:
-        return json.loads(ACCOUNTS.read_text("utf-8"))
+        raw = ACCOUNTS.read_text("utf-8")
+        return json.loads(secure.unprotect(raw.strip()) if raw.startswith(secure.PREFIX) else raw)
     except Exception:
         return {}
 
 
 def _save(d):
+    import secure
     tmp = ACCOUNTS.with_suffix(".tmp")
-    tmp.write_text(json.dumps(d, indent=2), "utf-8")
+    tmp.write_text(secure.protect(json.dumps(d, indent=2)), "utf-8")  # sign-in tokens encrypted for this Windows user
     os.replace(tmp, ACCOUNTS)
 
 
@@ -57,14 +60,30 @@ def public():
         out[p] = {"name": NAMES[p], "connected": bool(a.get("access_token")), "user": a.get("user", ""),
                   "client_id": a.get("client_id", ""), "has_secret": bool(a.get("client_secret")),
                   "privacy": a.get("privacy", "public"), "error": a.get("error", "")}
-    out["auto"] = d.get("_auto", {"on": False, "min_score": 80, "platforms": []})
+    out["auto"] = dict({"on": False, "min_score": 80, "platforms": [], "space_min": 30}, **d.get("_auto", {}))
     return out
 
 
-def set_auto(on, min_score, platforms):
+def next_slot(platform, gap):
+    """Earliest time a new post on this platform keeps the spacing."""
+    last = float((load().get("_slots") or {}).get(platform, 0))
+    return max(time.time(), last + gap)
+
+
+def take_slot(platform, t):
     with _lock:
         d = load()
-        d["_auto"] = {"on": bool(on), "min_score": int(min_score), "platforms": [p for p in platforms if p in PLATFORMS]}
+        sl = d.setdefault("_slots", {})
+        sl[platform] = max(float(sl.get(platform, 0)), float(t))
+        _save(d)
+
+
+def set_auto(on, min_score, platforms, space_min=None):
+    with _lock:
+        d = load()
+        old = d.get("_auto", {})
+        d["_auto"] = {"on": bool(on), "min_score": int(min_score), "platforms": [p for p in platforms if p in PLATFORMS],
+                      "space_min": int(space_min if space_min is not None else old.get("space_min", 30))}
         _save(d)
 
 
@@ -263,20 +282,18 @@ def _noprog(pct, stage=None):
 
 
 def _text(meta, limit):
-    tags = " ".join(meta.get("hashtags") or [])
-    body = (meta.get("caption") or meta.get("title") or "").strip()
-    t = (body + ("\n\n" + tags if tags else "")).strip()
-    return t[:limit]
+    return (meta.get("description") or meta.get("title") or "").strip()[:limit]
 
 
 def up_youtube(path, meta, log, prog=_noprog):
     tok = _token("youtube")
     a = acct("youtube")
-    title = (meta.get("title") or "Clip")[:95]
-    if "#shorts" not in title.lower() and len(title) < 88:
-        title += " #Shorts"
-    body = {"snippet": {"title": title, "description": _text(meta, 4900), "categoryId": "20" if meta.get("gaming") else "24",
-                        "tags": [h.lstrip("#") for h in meta.get("hashtags") or []][:15]},
+    from config import load_settings
+    title = (meta.get("title") or "Clip")[:100]
+    cat = str(load_settings().get("yt_category") or ("20" if meta.get("gaming") else "24"))
+    lang = meta.get("language") or "en"
+    body = {"snippet": {"title": title, "description": _text(meta, 4900), "categoryId": cat, "tags": meta.get("tags") or [],
+                        "defaultLanguage": lang, "defaultAudioLanguage": lang},
             "status": {"privacyStatus": {"private": "private", "unlisted": "unlisted"}.get(a.get("privacy"), "public"),
                        "selfDeclaredMadeForKids": False}}
     size = path.stat().st_size
@@ -410,7 +427,7 @@ def up_x(path, meta, log, prog=_noprog):
     if info and info.get("state") == "failed":
         raise PublishError("X couldn't process the video: " + str(info.get("error", {}).get("message", ""))[:200])
     text = (meta.get("title") or "")
-    tags = " ".join((meta.get("hashtags") or [])[:3])
+    tags = " ".join((meta.get("hashtags") or [])[:3])  # each once, from the description
     text = (text + (" " + tags if tags else ""))[:270]
     r = requests.post("https://api.x.com/2/tweets", headers=H, timeout=60, json={"text": text, "media": {"media_ids": [mid]}})
     d = r.json() if r.content else {}

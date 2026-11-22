@@ -305,14 +305,33 @@ def download_section(url, a, b, out, progress=lambda f: None):
     return out
 
 
+_chat_stop = set()
+
+
+class _ChatStopped(BaseException):
+    pass
+
+
+def stop_chat(dest_dir):
+    """Ends a chat-replay download for a project that's being deleted."""
+    _chat_stop.add(str(pathlib.Path(dest_dir)))
+
+
 def _download_chat(url, dest_dir):
     import yt_dlp
+    key = str(pathlib.Path(dest_dir))
+
+    def hook(d):
+        if key in _chat_stop:
+            raise _ChatStopped()
     try:
         with yt_dlp.YoutubeDL(_ydl_opts({"skip_download": True, "writesubtitles": True, "subtitleslangs": ["live_chat"],
-                                         "outtmpl": str(pathlib.Path(dest_dir) / "chat.%(ext)s")})) as y:
+                                         "outtmpl": str(pathlib.Path(dest_dir) / "chat.%(ext)s"), "progress_hooks": [hook]})) as y:
             y.download([url])
-    except Exception:
+    except (Exception, _ChatStopped):
         pass
+    finally:
+        _chat_stop.discard(key)
 
 
 def chat_density(dest_dir, bucket=10):

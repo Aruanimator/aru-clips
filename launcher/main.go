@@ -100,7 +100,7 @@ func freePort(first int) int {
 
 func alive(u string) bool {
 	c := http.Client{Timeout: 1500 * time.Millisecond}
-	r, err := c.Get(u + "/api/settings")
+	r, err := c.Get(u + "/api/ping")
 	if err != nil {
 		return false
 	}

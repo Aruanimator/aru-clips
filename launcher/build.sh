@@ -4,6 +4,7 @@ set -e
 cd "$(dirname "$0")"
 ROOT=..
 rm -f payload.zip
+date -u +%Y%m%d-%H%M%S > "$ROOT/app/VERSION"  # the app compares this with GitHub's copy to offer updates
 ( cd "$ROOT" && find app -name __pycache__ -exec rm -rf {} + ; rm -f launcher/payload.zip && zip -q -X -r launcher/payload.zip app requirements.txt )
 ${RSRC:-rsrc} -manifest app.manifest -ico icon.ico -arch amd64 -o rsrc_windows_amd64.syso
 mkdir -p ../dist

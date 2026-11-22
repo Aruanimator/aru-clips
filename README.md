@@ -74,6 +74,10 @@ Run from source on any OS: `pip install -r requirements.txt`, install ffmpeg, th
 Build the Windows exe (from Linux or macOS with Go 1.22+): `go install github.com/akavel/rsrc@latest`, then
 `sh launcher/build.sh`. It packs `app/` and `requirements.txt` into the exe and writes `dist/AruClips.exe`.
 
+### Tests
+
+Run `python tests/run_tests.py` before every push (needs ffmpeg and the packages in `requirements.txt`). It builds its own test videos and fakes the AI, transcription and uploads, then checks: the local-server safety checks, post text, a video project with pause, resume, a marked clip, ratings, spaced and scheduled publishing, start over and delete, a long video clipped hour by hour, and a live stream with the player feed, a marked clip, pause and resume.
+
 ## Credits
 
 Some ideas in live clipping, chat filtering, loudness and caption masking were adapted from

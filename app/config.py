@@ -43,20 +43,32 @@ DEFAULTS = {
 _lock = threading.Lock()
 
 
+SECRET_KEYS = ("groq_api_key", "groq_extra_keys", "gemini_api_key", "backup_key")
+
+
 def load_settings():
+    import secure
     s = dict(DEFAULTS)
     try:
         s.update(json.loads(SETTINGS_FILE.read_text("utf-8")))
     except Exception:
         pass
+    for k in SECRET_KEYS:  # stored encrypted, used as plain text
+        if k in s:
+            s[k] = secure.unprotect(s[k])
     return s
 
 
 def save_settings(patch):
+    import secure
     with _lock:
         s = load_settings()
         s.update(patch)
-        SETTINGS_FILE.write_text(json.dumps(s, indent=2), "utf-8")
+        disk = dict(s)
+        for k in SECRET_KEYS:
+            if disk.get(k):
+                disk[k] = secure.protect(disk[k])
+        SETTINGS_FILE.write_text(json.dumps(disk, indent=2), "utf-8")
         return s
 
 

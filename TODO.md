@@ -1,16 +1,11 @@
-# To fix later (from the Nov 22, 2026 audit)
+# To fix later
 
-Not started yet. In priority order:
+Done on Nov 22, 2026 (from the audit): local server token + Origin/Host check, DPAPI-encrypted keys and tokens,
+"Copy diagnostics", update check, automated tests (`python tests/run_tests.py`, run before every push), disk-space guard
+with "Free up space", backup/restore of ratings and settings, deleting a project stops its chat download.
 
-1. **Local server safety:** require a random session token from the UI, and check the Origin/Host headers on every API call (blocks webpages and DNS rebinding from reaching `127.0.0.1`).
-2. **Encrypt secrets:** store OAuth tokens (`accounts.json`) and API keys (settings) with Windows DPAPI instead of plain JSON.
-3. **"Copy diagnostics" button:** version, recent project logs and recorder logs in one click, for bug reports.
-4. **Update check at launch:** tell the user when a newer `AruClips.exe` is on GitHub.
-5. **Automated tests:** turn the sandbox harnesses (pause/resume, live reconnect, Twitch pipe, hour chunks, publishing, scheduling) into a test suite and run it before every push.
-6. **Disk-space guard:** warn when the clips drive is low; offer to delete source videos of finished projects.
-
-Also noted:
+Still open:
 - Check campaign rules (length, watermark, credit) before publishing.
 - Verify checksums of Python/ffmpeg downloaded on first run.
-- Back up ratings and settings.
-- Deleting a project should stop its chat-replay download first (deleted projects leave large `chat.live_chat.json.part` files behind).
+- Frame-based clip judging (the AI looks at frames, not only the transcript).
+- Pull YouTube's "stayed to watch" automatically (needs the YouTube Analytics API; for now it's typed in).

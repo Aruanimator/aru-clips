@@ -2,7 +2,7 @@
 import json, math, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
 import numpy as np
 from config import output_dir, load_settings, slug, FFMPEG, popen, run, UPLOADS
-import ai, media, picker, render, signals, publish, taste
+import ai, media, picker, render, signals, publish, taste, post as postmod
 
 JOBS = {}
 _pipe_lock = threading.Lock()   # one download/transcribe pipeline at a time
@@ -193,9 +193,10 @@ def delete(jid):
     j = get(jid)
     if not j:
         return False
+    media.stop_chat(j.dir)  # a chat replay still downloading would keep writing into the folder
     _halt(j, 30)
     JOBS.pop(jid, None)
-    for _ in range(10):  # Windows keeps files locked for a moment after ffmpeg exits
+    for _ in range(30):  # Windows keeps files locked for a moment after ffmpeg exits
         shutil.rmtree(j.dir, ignore_errors=True)
         if not j.dir.exists():
             break
@@ -274,7 +275,8 @@ def _src_for(j, c):
 def render_one(j, c):
     src = _src_for(j, c)
     if not src or not src.exists():
-        raise RuntimeError("The source video for this clip is missing")
+        raise RuntimeError("The source video was deleted to free up space, so this clip can't be re-rendered"
+                           if j.get("source_dropped") else "The source video for this clip is missing")
     words, lang = _words_for(j, c)
     out = j.dir / f"clip_{c['n']:02d}.mp4"
     with _render_lock:
@@ -318,7 +320,7 @@ def _predownload(j, o):
     j.stage("Downloading while the previous project finishes…", 0.01)
     src, info = media.download(o["url"], j.dir, j.log, lambda f: (_check(j), j.set(progress=round(0.01 + 0.29 * f, 3))),
                                want_chat=(o.get("source_type") or "video") == "stream")
-    j.set(title=info.get("title") or j.get("title"))
+    j.set(title=info.get("title") or j.get("title"), streamer=info.get("uploader") or info.get("channel") or j.get("streamer"))
     if info.get("heatmap"):
         (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
     with j.lock:
@@ -354,6 +356,8 @@ def _run_job(j):
         j.stage("Downloading the video…", 0.01)
         src, info = media.download(o["url"], j.dir, j.log, lambda f: (_check(j), j.set(progress=round(0.01 + 0.29 * f, 3))),
                                    want_chat=mode == "stream")
+        if info.get("uploader") or info.get("channel"):
+            j.set(streamer=info.get("uploader") or info.get("channel"))
         j.set(title=info.get("title") or j.get("title"))
         if info.get("heatmap"):
             (j.dir / "heatmap.json").write_text(json.dumps(info["heatmap"]), "utf-8")
@@ -449,6 +453,8 @@ def _go_chunked(j, o):
         j.save()
     if info.get("title"):
         j.set(title=info["title"])
+    if info.get("uploader"):
+        j.set(streamer=info["uploader"])
     j.log(f"This video is {int(d // 3600)}h{int(d % 3600 // 60):02d}m long, so it's downloaded and clipped an hour at a time: "
           "the first clips come after the first hour is in.")
     return True
@@ -726,6 +732,8 @@ def run_live(j):
     s = load_settings()
     st = j.get("live_state") or {}  # what an earlier session (before a pause) already did
     probe = media.probe_url(o["url"])
+    m = re.search(r"(?:twitch\.tv|kick\.com)/([^/?#]+)", o["url"])
+    j.set(streamer=probe.get("uploader") or (m.group(1) if m else j.get("streamer")))
     j.set(status="running", title="LIVE · " + (probe.get("title") or o["url"]),
           live={"recording": True, "elapsed": int(st.get("elapsed", 0)), "parts": len(st.get("done", []))})
     j.stage("Connecting to the live stream…", 0.02)
@@ -1196,21 +1204,43 @@ def run_live(j):
 
 
 # ======================================================================= publishing
+def clip_text(j, c):
+    words, _ = _words_for(j, c, edited=False)
+    return " ".join(w["w"] for w in words if c["start"] <= w["s"] <= c["end"])
+
+
+def post_for(j, c):
+    """What gets posted: the text edited in the Publish box, or the template built for this clip."""
+    try:
+        built = postmod.build(j, c, clip_text(j, c))
+    except Exception:
+        built = postmod.build(j, c, "")
+    p = c.get("post") or {}
+    if p.get("title"):
+        built["title"] = p["title"]
+    if p.get("description"):
+        built["description"] = p["description"]
+    if p.get("tags"):
+        built["tags"] = p["tags"]
+    built["hashtags"] = re.findall(r"#\w+", built["description"]) or built["hashtags"]
+    return built
+
+
 def set_post_text(j, n, meta):
-    """Saves the title, caption and hashtags used when posting this clip."""
+    """Saves the title, description and tags used when posting this clip."""
     c = j.clip(int(n))
     if not c:
         return
-    tags = meta.get("hashtags", "")
+    tags = meta.get("tags", "")
     if isinstance(tags, str):
-        tags = ["#" + t.lstrip("#") for t in re.split(r"[\s,]+", tags) if t.strip("#")]
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
     with j.lock:
-        c["post"] = {"title": str(meta.get("title", "")).strip()[:100], "caption": str(meta.get("caption", "")).strip()[:2200],
-                     "hashtags": tags[:30]}
+        c["post"] = {"title": str(meta.get("title", "")).strip()[:100], "description": str(meta.get("description", "")).strip()[:4900],
+                     "tags": tags[:40]}
         j.save()
 
 
-def publish_clips(j, ns, platforms, why=None, when=None):
+def publish_clips(j, ns, platforms, why=None, when=None, force_now=False):
     """Queues rendered clips for upload (or schedules them for `when`, a Unix time).
     Returns how many were queued; why (a list) collects reasons for skipped ones."""
     when = float(when) if when else None
@@ -1237,11 +1267,21 @@ def publish_clips(j, ns, platforms, why=None, when=None):
                 why.append(f"clip {n} is already {'uploading' if st == 'uploading' else 'waiting'} for {publish.NAMES[p]}")
         if not todo:
             continue
-        if when:  # the scheduler picks it up at that time
+        slot_when = when
+        gap = int(publish.public()["auto"].get("space_min", 30)) * 60
+        if not when and gap > 0 and not force_now:  # keep posts on each platform spaced out
+            slots = [publish.next_slot(p, gap) for p in todo]
+            if max(slots) > time.time() + 60:
+                slot_when = max(slots)
+                why.append(f"clip {n} is scheduled for later to keep posts {gap // 60} min apart")
+        for p in todo:
+            publish.take_slot(p, slot_when or time.time())
+        if slot_when:  # the scheduler picks it up at that time
+            when_ = slot_when
             with j.lock:
                 pub = c.setdefault("published", {})
                 for p in todo:
-                    pub[p] = {"state": "scheduled", "when": int(when)}
+                    pub[p] = {"state": "scheduled", "when": int(when_)}
                 j.save()
             k += 1
             continue
@@ -1255,9 +1295,7 @@ def publish_clips(j, ns, platforms, why=None, when=None):
             with j.lock:
                 c.setdefault("published", {})[p] = st
                 j.save()
-        post = c.get("post") or {}  # text edited in the Publish box (the video itself is unchanged)
-        meta = {"title": post.get("title") or c.get("title", ""), "caption": post.get("caption", c.get("caption", "")),
-                "hashtags": post.get("hashtags", c.get("hashtags") or []), "gaming": gaming}
+        meta = dict(post_for(j, c), gaming=gaming or bool((j.get("opts") or {}).get("game") in postmod.GAME_NAMES))
         publish.enqueue({"path": str(output_dir() / c["file"]), "meta": meta, "platforms": todo, "on_update": upd, "log": j.log})
         k += 1
     return k
@@ -1278,6 +1316,24 @@ def unschedule(j, n, platform):
 _sched = {"t": None}
 
 
+def scheduler_tick(now=None):
+    """Publishes every scheduled post whose time has come. Returns how many clips it sent."""
+    load_all()
+    now = now or time.time()
+    sent = 0
+    for j in list(JOBS.values()):
+        for c in list(j.data.get("clips", [])):
+            due = [p for p, st in (c.get("published") or {}).items() if st.get("state") == "scheduled" and st.get("when", 0) <= now]
+            if due:
+                with j.lock:
+                    for p in due:
+                        c["published"].pop(p, None)
+                j.log(f"Scheduled time reached: publishing clip {c['n']} to " + ", ".join(publish.NAMES[p] for p in due))
+                publish_clips(j, [c["n"]], due, force_now=True)
+                sent += 1
+    return sent
+
+
 def start_scheduler():
     """Posts scheduled clips when their time comes (if the app was closed then, as soon as it opens again)."""
     if _sched["t"] and _sched["t"].is_alive():
@@ -1286,17 +1342,7 @@ def start_scheduler():
     def loop():
         while True:
             try:
-                load_all()
-                now = time.time()
-                for j in list(JOBS.values()):
-                    for c in list(j.data.get("clips", [])):
-                        due = [p for p, st in (c.get("published") or {}).items() if st.get("state") == "scheduled" and st.get("when", 0) <= now]
-                        if due:
-                            with j.lock:
-                                for p in due:
-                                    c["published"].pop(p, None)
-                            j.log(f"Scheduled time reached: publishing clip {c['n']} to " + ", ".join(publish.NAMES[p] for p in due))
-                            publish_clips(j, [c["n"]], due)
+                scheduler_tick()
             except Exception as e:
                 print("scheduler:", e)
             time.sleep(20)
@@ -1335,6 +1381,20 @@ def rate(j, n, stars):
     text = " ".join(w["w"] for w in words if c["start"] <= w["s"] <= c["end"])
     taste.record(f"{j.id}:{n}", stars, c, text, (j.get("opts") or {}).get("content", "general"))
     return taste.summary()
+
+
+def set_stay(j, n, pct):
+    """'Stayed to watch' % from YouTube Studio, about an hour after posting. Feeds the ratings: 60%+ is a hit."""
+    c = j.clip(int(n))
+    if not c:
+        raise KeyError("clip")
+    pct = max(0.0, min(100.0, float(pct)))
+    stars = 5 if pct >= 60 else 4 if pct >= 50 else 3 if pct >= 40 else 2 if pct >= 30 else 1
+    with j.lock:
+        c["stay"] = pct
+        j.save()
+    rate(j, n, stars)
+    return stars
 
 
 def board(limit=400):

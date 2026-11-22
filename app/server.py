@@ -54,9 +54,39 @@ def within(root, rel):
 
 
 # ======================================================================= page + static
+# ---- local-only safety: every API call needs this page's token, and requests must come from this PC's address.
+# Stops other websites (and DNS-rebinding tricks) from using the app's API through your browser.
+import secrets as _secrets
+from urllib.parse import urlparse as _urlparse
+from fastapi.responses import PlainTextResponse
+TOKEN = _secrets.token_urlsafe(24)
+_LOCAL = ("127.0.0.1", "localhost", "::1", "[::1]")
+_OPEN_API = ("/api/ping",)
+
+
+@app.middleware("http")
+async def _guard(request: Request, call_next):
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        return PlainTextResponse("Aru Clips only answers on this PC.", status_code=403)
+    origin = request.headers.get("origin")
+    if origin and origin != "null" and (_urlparse(origin).hostname or "") not in _LOCAL:
+        return PlainTextResponse("Blocked: request from another website.", status_code=403)
+    path = request.url.path
+    if path.startswith("/api/") and path not in _OPEN_API:
+        if not _secrets.compare_digest(request.headers.get("x-aru-token", ""), TOKEN):
+            return JSONResponse({"detail": "Reload the Aru Clips page (its security token is out of date)."}, status_code=403)
+    return await call_next(request)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTMLResponse((APP / "static" / "index.html").read_text("utf-8"), headers={"Cache-Control": "no-store"})
+    html = (APP / "static" / "index.html").read_text("utf-8")
+    inject = ("<script>window.ARU_TOKEN=" + json.dumps(TOKEN) + ";(function(){const f=window.fetch.bind(window);"
+              "window.fetch=(u,o)=>{o=Object.assign({},o||{});if(typeof u==='string'&&u.startsWith('/')){"
+              "const h=new Headers(o.headers||{});h.set('X-Aru-Token',window.ARU_TOKEN);o.headers=h}return f(u,o)}})();</script>")
+    html = html.replace("<head>", "<head>" + inject, 1)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/brand/logo.png")
@@ -134,7 +164,7 @@ def get_settings():
 def post_settings(body: dict = Body(...)):
     allowed = {"engine", "groq_api_key", "groq_llm_model", "groq_whisper_model", "ollama_model", "ollama_url", "output_dir",
                "cookies_browser", "local_whisper_model", "groq_extra_keys", "gemini_api_key", "gemini_model", "video_encoder",
-               "backup_ai", "backup_key", "backup_model", "learn_taste"}
+               "backup_ai", "backup_key", "backup_model", "learn_taste", "post_template", "post_tags", "yt_category"}
     patch = {k: v for k, v in body.items() if k in allowed}
     for k in ("groq_api_key", "gemini_api_key", "backup_key"):
         if str(patch.get(k, "")).startswith("••"):
@@ -166,6 +196,11 @@ def post_settings(body: dict = Body(...)):
     import render
     render._enc_cache.clear()
     jobs.JOBS.clear()
+    return {"ok": True}
+
+
+@app.get("/api/ping")
+def ping():  # the launcher checks this to see whether the app is running
     return {"ok": True}
 
 
@@ -322,6 +357,172 @@ def export(jid: str, body: dict = Body(default={})):
 @app.post("/api/jobs/{jid}/clips/delete")
 def delete_clips(jid: str, body: dict = Body(...)):
     return {"deleted": jobs.delete_clips(job_or_404(jid), body.get("ns") or [])}
+
+
+# ---- diagnostics, updates, disk space, backup
+def _version():
+    try:
+        return (APP / "VERSION").read_text("utf-8").strip()
+    except OSError:
+        return "dev"
+
+
+@app.get("/api/diagnostics")
+def diagnostics():
+    """Everything useful for a bug report in one text block (no keys or tokens)."""
+    import platform
+    out = [f"Aru Clips {_version()} · {platform.platform()} · Python {platform.python_version()}"]
+    try:
+        r = subprocess.run([FFMPEG, "-version"], capture_output=True, text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out.append(r.stdout.splitlines()[0] if r.stdout else "ffmpeg: ?")
+    except Exception as e:
+        out.append(f"ffmpeg: {e}")
+    s = load_settings()
+    from config import SECRET_KEYS
+    out.append("Settings: " + json.dumps({k: (bool(v) if k in SECRET_KEYS else v) for k, v in s.items()
+                                          if k not in ("post_template",)}, ensure_ascii=False))
+    try:
+        out.append("Engines: " + json.dumps(health()))
+    except Exception as e:
+        out.append(f"Engines: {e}")
+    try:
+        du = shutil.disk_usage(output_dir())
+        out.append(f"Clips drive: {du.free / 2**30:.1f} GB free of {du.total / 2**30:.0f} GB")
+    except Exception:
+        pass
+    pub = publish.public()
+    out.append("Publishing: " + ", ".join(f"{p}={'connected' if pub[p]['connected'] else 'no'}" for p in publish.PLATFORMS)
+               + f" · auto={pub['auto']}")
+    out.append("Learning: " + json.dumps(taste.summary()))
+    for x in jobs.listing()[:6]:
+        j = jobs.get(x["id"])
+        if not j:
+            continue
+        o = {k: v for k, v in (j.get("opts") or {}).items() if k not in ("prompt",)}
+        out += ["", f"=== {j.id} · {j.get('title', '')[:70]} · {j.get('status')} · {j.get('stage', '')[:120]}",
+                f"error: {j.get('error')}" if j.get("error") else "", "opts: " + json.dumps(o, ensure_ascii=False)[:600]]
+        out += list((j.get("logs") or [])[-40:])
+        rl = j.dir / "live" / "recorder.log"
+        if rl.exists():
+            out += ["--- recorder.log"] + rl.read_text("utf-8", "ignore").splitlines()[-25:]
+    al = DATA / "app.log"
+    if al.exists():
+        out += ["", "=== app.log (last lines)"] + al.read_text("utf-8", "ignore").splitlines()[-60:]
+    text = "\n".join(l for l in out if l is not None)
+    for k in SECRET_KEYS:  # belt and braces: never leak a key
+        v = str(s.get(k) or "")
+        for part in re.split(r"[\s,;]+", v):
+            if len(part) > 8:
+                text = text.replace(part, "••••")
+    (DATA / "diagnostics.txt").write_text(text, "utf-8")
+    return {"text": text, "file": str(DATA / "diagnostics.txt")}
+
+
+_upd = {"t": 0, "data": None}
+
+
+@app.get("/api/update")
+def update_check():
+    """Is a newer AruClips.exe on GitHub? Checked at most every 6 hours."""
+    if _upd["data"] and time.time() - _upd["t"] < 6 * 3600:
+        return _upd["data"]
+    cur, latest = _version(), ""
+    try:
+        r = requests.get("https://raw.githubusercontent.com/Aruanimator/aru-clips/main/app/VERSION", timeout=6)
+        if r.ok:
+            latest = r.text.strip()
+    except Exception:
+        pass
+    d = {"current": cur, "latest": latest, "newer": bool(latest and cur != "dev" and latest > cur),
+         "url": "https://github.com/Aruanimator/aru-clips/raw/main/download/AruClips.exe"}
+    _upd.update(t=time.time(), data=d)
+    return d
+
+
+def _src_files(j):
+    fs = [p for p in j.dir.glob("source.*") if p.is_file()]
+    if (j.dir / "chunks").exists():
+        fs += [p for p in (j.dir / "chunks").glob("*.mp4")]
+    fs += [p for p in j.dir.glob("audio*.wav")]
+    return fs
+
+
+@app.get("/api/storage")
+def storage():
+    du = shutil.disk_usage(output_dir())
+    rows = []
+    for x in jobs.listing():
+        j = jobs.get(x["id"])
+        if not j or j.get("status") in ("running", "queued") or (j.get("opts") or {}).get("source_type") == "live":
+            continue
+        size = sum(p.stat().st_size for p in _src_files(j))
+        if size > 50 * 2**20:
+            rows.append({"id": j.id, "title": j.get("title", ""), "gb": round(size / 2**30, 2), "status": j.get("status"),
+                         "clips": len([c for c in j.data.get("clips", []) if c.get("file")])})
+    rows.sort(key=lambda r: -r["gb"])
+    return {"free_gb": round(du.free / 2**30, 1), "total_gb": round(du.total / 2**30), "low": du.free < 15 * 2**30, "sources": rows}
+
+
+@app.post("/api/jobs/{jid}/drop-source")
+def drop_source(jid: str):
+    """Frees space: deletes the downloaded video of a finished project. Its clips stay; re-rendering them won't work."""
+    j = job_or_404(jid)
+    if j.get("status") in ("running", "queued"):
+        raise HTTPException(400, "Pause or finish this project first")
+    freed = 0
+    for p in _src_files(j):
+        try:
+            freed += p.stat().st_size; p.unlink()
+        except OSError:
+            pass
+    j.set(source_dropped=True)
+    return {"freed_gb": round(freed / 2**30, 2)}
+
+
+@app.get("/api/backup")
+def backup():
+    """Ratings, settings (without keys), streamers, publishing preferences and watermarks in one zip."""
+    import io, zipfile
+    from config import SECRET_KEYS
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        s = {k: v for k, v in load_settings().items() if k not in SECRET_KEYS}
+        z.writestr("settings.json", json.dumps(s, indent=2))
+        for f in (output_dir() / "ratings.json", DATA / "watchlist.json"):
+            if f.exists():
+                z.write(f, f.name)
+        z.writestr("publishing.json", json.dumps({"auto": publish.public()["auto"]}, indent=2))
+        for f in WATERMARKS.glob("*"):
+            z.write(f, "watermarks/" + f.name)
+    from fastapi.responses import Response
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="aru-clips-backup-{time.strftime("%Y%m%d")}.zip"'})
+
+
+@app.post("/api/restore")
+async def restore(file: UploadFile = File(...)):
+    import io, zipfile
+    from config import SECRET_KEYS
+    try:
+        z = zipfile.ZipFile(io.BytesIO(await file.read()))
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "That isn't an Aru Clips backup")
+    names = z.namelist()
+    if "settings.json" in names:
+        s = json.loads(z.read("settings.json"))
+        save_settings({k: v for k, v in s.items() if k not in SECRET_KEYS and k != "output_dir"})
+    if "ratings.json" in names:
+        (output_dir() / "ratings.json").write_bytes(z.read("ratings.json"))
+    if "watchlist.json" in names:
+        (DATA / "watchlist.json").write_bytes(z.read("watchlist.json"))
+    if "publishing.json" in names:
+        a = json.loads(z.read("publishing.json")).get("auto", {})
+        publish.set_auto(a.get("on"), a.get("min_score", 80), a.get("platforms") or [], a.get("space_min"))
+    for n in names:
+        if n.startswith("watermarks/") and not n.endswith("/"):
+            (WATERMARKS / safe_name(n.split("/", 1)[1])).write_bytes(z.read(n))
+    taste._cache["model"] = None
+    return {"ok": True}
 
 
 # ---- uninstall (the launcher asks what to remove and does it)
@@ -565,6 +766,23 @@ def pub_disconnect(platform: str):
     return {"ok": True}
 
 
+@app.get("/api/jobs/{jid}/clips/{n}/post")
+def clip_post(jid: str, n: int):
+    j = job_or_404(jid)
+    c = j.clip(n)
+    if not c:
+        raise HTTPException(404, "Clip not found")
+    return jobs.post_for(j, c)
+
+
+@app.post("/api/jobs/{jid}/clips/{n}/stay")
+def clip_stay(jid: str, n: int, body: dict = Body(...)):
+    try:
+        return {"stars": jobs.set_stay(job_or_404(jid), n, body.get("pct", 0)), "taste": taste.summary()}
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(400, "Type the 'Stayed to watch' percentage from YouTube Studio")
+
+
 @app.post("/api/jobs/{jid}/clips/{n}/unschedule")
 def unschedule(jid: str, n: int, body: dict = Body(...)):
     if not jobs.unschedule(job_or_404(jid), n, body.get("platform", "")):
@@ -574,7 +792,7 @@ def unschedule(jid: str, n: int, body: dict = Body(...)):
 
 @app.post("/api/publish/auto")
 def pub_auto(body: dict = Body(...)):
-    publish.set_auto(body.get("on"), body.get("min_score", 80), body.get("platforms") or [])
+    publish.set_auto(body.get("on"), body.get("min_score", 80), body.get("platforms") or [], body.get("space_min"))
     return publish.public()["auto"]
 
 
@@ -748,7 +966,7 @@ def _already_running(port):
     """True when Aru Clips is already open on this port (double-clicked twice)."""
     try:
         import urllib.request
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=1.5) as r:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1.5) as r:
             return r.status == 200
     except Exception:
         return False

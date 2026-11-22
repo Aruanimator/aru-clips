@@ -8,16 +8,16 @@ PROFILES = {
 This is GAMING content. Speech is only half the story: the best gaming clips are often a play, a fail or a reaction
 where little is said. Use the chat and hype signals to find them and the transcript to frame them. Great gaming clips:
 clutch plays and wins, embarrassing fails and deaths, rage and screaming, laughing fits, insane luck, bugs and glitches,
-trolling and funny interactions, first reactions to something new. Start a few seconds before the action so the viewer
-sees what caused the reaction, and end on the reaction or the punchline, not after it fades.""",
+trolling and funny interactions, first reactions to something new. Start 1-2 seconds before the action: the first 2 seconds
+decide whether a viewer stays or swipes away, so never open on calm set-up. End on the reaction or the punchline, not after
+it fades.""",
     "gta6": """
 The game is GTA 6 (Grand Theft Auto VI: Vice City, the state of Leonida, protagonists Lucia and Jason). GTA 6 clips that
 perform: wild police chases and wanted-level chaos, heists and robberies going right or horribly wrong, crashes,
 ragdoll and physics madness, hilarious NPC reactions and conversations, the in-game social media and radio parodies,
 jaw-dropping realism (weather, water, crowds, faces, cars) and "GTA 5 could never" comparisons, hidden details and
 easter eggs, first time seeing a new area or feature, money and car flexing, glitches, and the streamer's honest
-first reactions to the game. Titles should name GTA 6 so they get found in search (for example "GTA 6 cops are
-UNREAL"), and include #GTA6 #GTAVI in the hashtags.""",
+first reactions to the game. Name the character in the title when one is involved (Lucia, Jason).""",
 }
 
 
@@ -77,8 +77,12 @@ Score every clip with the same four-part rubric, judged the same way in every ba
 - "payoff": does it land (punchline, twist, result, answer) and make sense on its own?
 - "share": would people replay it, comment on it or send it to a friend?
 Anchors for each part: 22-25 one of the best moments you would find in any video, 15-21 clearly good, 8-14 average, 0-7 weak.
-Most moments are average: use the full range. Titles read like a viral Short's caption that creates curiosity or stakes
-("He lost $2M in one trade"), never a dry summary. Answer with JSON only. Write titles, reasons and captions in the same
+Most moments are average: use the full range.
+Titles: name a character or the stakes and leave the outcome open, so viewers stay to see what happens. Titles like these
+worked: "Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the odds are impossible". Generic labels flopped:
+"Reality Check", "He's flying the burn!". Never give away the ending in the title.
+"caption" is a one-line hook for the description that teases the moment without spoiling it (one emoji at most).
+Answer with JSON only. Write titles, reasons and captions in the same
 language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + taste.prompt_text())
 
 
@@ -97,7 +101,7 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
         user += f"Extra instructions from the creator: {prompt}\n"
     user += ('Return JSON: {"clips":[{"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why it stops the scroll","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
-             '"caption":"social media caption with 1-2 emoji","hashtags":["#tag","#tag","#tag"]}]}')
+             '"caption":"one-line hook that teases without spoiling"}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
     out = []
     for c in data.get("clips", []) if isinstance(data, dict) else []:
@@ -373,8 +377,7 @@ def describe(text, lang="en", profile="general", game="any", log=print):
         return fallback
     user = (f"The creator marked this moment by hand. Transcript:\n{text[:3000]}\n\nWrite its title and post text, and score it "
             'with the rubric. Return JSON: {"title":"scroll-stopping title, max 8 words","reason":"one sentence",'
-            '"hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,"caption":"social media caption with 1-2 emoji",'
-            '"hashtags":["#tag","#tag","#tag"]}')
+            '"hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,"caption":"one-line hook that teases without spoiling"}')
     try:
         data, eng = ai.chat_json([{"role": "system", "content": _system("video", lang, profile, game)}, {"role": "user", "content": user}], log=log)
         c = _clip_from(dict(data, start=0, end=1))
@@ -406,7 +409,7 @@ def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game):
         user += f"Extra instructions from the creator: {prompt}\n"
     user += ('Return JSON: {"clips":[{"id":1,"skip":false,"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why the audience reacted","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
-             '"caption":"social media caption with 1-2 emoji","hashtags":["#tag","#tag","#tag"]}]}')
+             '"caption":"one-line hook that teases without spoiling"}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
     out = {}
     for c in data.get("clips", []) if isinstance(data, dict) else []:
