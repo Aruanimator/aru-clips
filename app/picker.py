@@ -29,6 +29,27 @@ def profile_text(profile, game):
             t += PROFILES["gta6"]
     return t
 
+# Moments with something at stake and the outcome still open: what worked on the creator's channel
+# ("Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the odds are impossible").
+STAKES_WORDS = re.compile(
+    r"\b(almost|nearly|barely|don'?t (run|move|shoot|jump|do it|go)|watch out|look out|get down|get in|hold on|wait wait|"
+    r"no no+|oh no|please|we'?re (dead|done|cooked|screwed)|i'?m (dead|cooked|done)|(he|she)'?s (gonna|about to)|"
+    r"cops?|police|swat|wanted|(five|5) stars?|chase|chasing|crash(ed|ing)?|stand ?off|shoot(ing|out)?|gun|heist|robbery|"
+    r"bank|escape|getaway|last (chance|life|shot)|impossible|no way out|trapped|surrounded|jump(ing)? off|bridge|"
+    r"save (her|him|me)|lucia|jason)\b", re.I)
+
+
+def stakes_moments(segs, min_hits=2, window=20.0):
+    """Times where the talk shows something at stake (danger, a standoff, a chase, impossible odds)."""
+    out = []
+    for i, g in enumerate(segs):
+        txt = " ".join(x["text"] for x in segs[i:i + 4] if x["s"] - g["s"] <= window)
+        hits = len(STAKES_WORDS.findall(txt))
+        if hits >= min_hits and (not out or g["s"] - out[-1][0] > window):
+            out.append((g["s"], hits))
+    return out
+
+
 HYPE_WORDS = re.compile(r"\b(haha+|lol|lmao|omg|oh my god|no way|what\?*!|wow|bro|let'?s go+|insane|crazy|wtf|holy)\b|\[(laughter|laughs|applause)\]", re.I)
 
 
@@ -70,8 +91,14 @@ Skip: intros, "like and subscribe", sponsor reads, housekeeping, inside jokes th
 in the middle of a thought. On streams also skip the junk: raids and shout-outs to raiders, ad breaks, "starting soon" / BRB /
 ending screens, reading donations or sub alerts, queue and loading screens, and dead air where nothing happens.
 
+What to hunt for first: moments with something at stake and the outcome still open when the clip starts: a character
+in danger or about to die, a standoff, a chase, a risky jump or choice, impossible odds, a plan about to go wrong. These
+held viewers best ("Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the odds are impossible"). Moments
+that are just commentary, opinions about the game, or a generic reaction with nothing at stake ("Reality Check", "He's
+flying the burn!") lost viewers in the first seconds: score them low on hook and share even when the talk is lively.
+
 Score every clip with the same four-part rubric, judged the same way in every batch (each part 0-25):
-- "hook": do the first 2 seconds grab someone who is scrolling?
+- "hook": do the first 2 seconds grab someone who is scrolling? Clear stakes with an open outcome score highest.
 - "emotion": how strong and genuine is the feeling it gives a viewer: laughing fits, shock, rage, fear, hype, heartbreak,
   awe, cringe, a voice cracking. Raw, real emotion scores high even with few words; calm explaining scores low.
 - "payoff": does it land (punchline, twist, result, answer) and make sense on its own?
@@ -206,7 +233,8 @@ def heuristic(words, segs, total, n, mn, mx, loud, hype):
         rate = len(ws) / max(1, e - s)
         lo = loud[int(s):min(L, int(e) + 1)] if L else np.array([-30])
         energy = float(np.mean(lo)) if len(lo) else -30
-        score = rate * 8 + (energy + 40) * 0.8 + 12 * hyset[int(s):int(e) + 1].sum() + 6 * len(HYPE_WORDS.findall(text))
+        score = (rate * 8 + (energy + 40) * 0.8 + 12 * hyset[int(s):int(e) + 1].sum() + 6 * len(HYPE_WORDS.findall(text))
+                 + 7 * len(STAKES_WORDS.findall(text)))
         score += 5 if "?" in segs[i]["text"] else 0
         cands.append((score, s, e, text))
     cands.sort(reverse=True)
@@ -447,6 +475,7 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
     words, segs, lang = tr["words"], tr["segments"], tr.get("language", "en")
     if not chat and not heat:
         hype = hype_moments(loud if loud is not None else np.array([-30.0]), None, words) if mode in ("stream", "live") else []
+        hype = sorted(set(hype) | {int(t) for t, _ in stakes_moments(segs)})
         return pick(tr, total, n, mn, mx, mode, prompt, loud, hype, log, progress, profile, game, pre, post)
     score, parts = signals.timeline(total, chat, heat, loud, lag, profile, baseline)
     pk = signals.peaks(score, max(n * 2, n + 4), max(mn, 20))
@@ -455,6 +484,11 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
     if not pk:
         return pick(tr, total, n, mn, mx, mode, prompt, loud, [], log, progress, profile, game, pre, post)
     smax = max(s for _, s in pk)
+    extra = [(t, h) for t, h in stakes_moments(segs) if all(abs(t - p) > max(mn, 20) for p, _ in pk)]
+    extra = sorted(extra, key=lambda x: -x[1])[:max(2, n // 2)]
+    if extra:
+        log(f"Added {len(extra)} moment{'s' if len(extra) != 1 else ''} with something at stake from the transcript")
+        pk = list(pk) + [(t + 5.0, smax * min(0.75, 0.35 + 0.1 * h)) for t, h in extra]
     cands = []
     for k, (t, sc) in enumerate(pk):
         lo, hi = max(0.0, t - mx * 0.85), min(total, t + mx * 0.6)
