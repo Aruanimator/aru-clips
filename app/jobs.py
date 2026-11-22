@@ -242,7 +242,8 @@ def _clip_opts(j, c):
             "layout": {**(o.get("layout") or {}), **(c.get("layout") or {})}, "brand": o.get("brand") or {},
             "framing": {"panes": c["framing_manual"]} if c.get("framing_manual") else None,
             "cam_cache": str(j.dir / "cam.json"),
-            "stream": o.get("content") == "gaming" or o.get("source_type") in ("stream", "live")}
+            "stream": o.get("content") == "gaming" or o.get("source_type") in ("stream", "live"),
+            "voice_only": bool(c.get("voice_only")), "voice_ranges": c.get("voice_ranges")}
 
 
 def _words_for(j, c, edited=True):
@@ -284,6 +285,18 @@ def render_one(j, c):
         raise RuntimeError("The source video was deleted to free up space, so this clip can't be re-rendered"
                            if j.get("source_dropped") else "The source video for this clip is missing")
     words, lang = _words_for(j, c)
+    if c.get("music") is None:  # listen for songs once per clip: they get Shorts claimed or blocked
+        try:
+            import music
+            c["music"] = music.detect(src, c["start"], c["end"], words, j.log)
+            if c["music"].get("music"):
+                j.log(f"Clip {c['n']}: music detected ({c['music'].get('what') or 'background music'})")
+                if c["music"].get("sure") and c.get("voice_only") is None and load_settings().get("auto_mute_music", True) is not False:
+                    c["voice_only"] = True  # taken out by itself; "Restore sound" on the clip brings it back
+                    c["voice_ranges"] = c["music"].get("where") or None  # only where the music plays
+        except Exception as e:
+            j.log(f"Couldn't check clip {c['n']} for music ({str(e)[:120]})")
+            c["music"] = {}
     out = j.dir / f"clip_{c['n']:02d}.mp4"
     with _render_lock:
         r = render.render_clip(src, out, c["start"], c["end"], words, _clip_opts(j, c), lang, j.log)
@@ -1502,6 +1515,9 @@ def auto_publish(j, c):
         a = publish.public()["auto"]
         if not a.get("on") or not a.get("platforms") or c.get("pending") or not c.get("file"):
             return
+        if (c.get("music") or {}).get("music") and not c.get("voice_only"):
+            j.log(f"Clip {c['n']} has music in it, so it isn't auto-published: check it, then publish it yourself")
+            return
         if int(c.get("score") or 0) < int(a.get("min_score", 80)) and not c.get("manual"):
             return
         ready = [p for p in a["platforms"] if publish.acct(p).get("access_token")]
@@ -1544,6 +1560,25 @@ def set_stay(j, n, pct):
     text = " ".join(w["w"] for w in words if c["start"] <= w["s"] <= c["end"])
     taste.record(f"{j.id}:{n}:stay", stars, c, text, (j.get("opts") or {}).get("content", "general"))
     return stars
+
+
+def set_voice_only(j, n, on):
+    """'Mute background' on a clip: re-renders it with the music taken out (or the original sound back)."""
+    c = j.clip(int(n))
+    if not c:
+        raise KeyError("clip")
+    with j.lock:
+        c["voice_only"] = bool(on)
+        c.pop("voice_ranges", None)  # pressed by hand: the whole clip
+        c["rendering"] = True
+        j.save()
+    try:
+        render_one(j, c)
+    finally:
+        with j.lock:
+            c.pop("rendering", None)
+            j.save()
+    return c
 
 
 def board(limit=400):

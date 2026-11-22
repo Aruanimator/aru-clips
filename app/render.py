@@ -1543,7 +1543,17 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
                              "-an", "-vf", f"fps={FPS},scale={pw}:{ph}:force_original_aspect_ratio=increase,crop={pw}:{ph}",
                              "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         cmd = [FFMPEG, "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-"]
-        if info["has_audio"]:
+        voice = None
+        if info["has_audio"] and opts.get("voice_only"):  # background music taken out, voices kept
+            try:
+                import music
+                log("Taking the background music out of this clip…")
+                voice = music.voice_only(src, start, start + src_dur, tmp / "voice.wav", log, opts.get("voice_ranges"))
+            except Exception as e:
+                log(f"Couldn't take the music out ({str(e)[:150]}), keeping the original sound")
+        if voice:
+            cmd += ["-i", str(voice)]
+        elif info["has_audio"]:
             cmd += media.inopts(src) + ["-ss", f"{start:.3f}", "-t", f"{src_dur:.3f}", "-i", str(src)]
         else:
             cmd += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]

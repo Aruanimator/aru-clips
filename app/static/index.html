@@ -669,6 +669,8 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
 .freebtn{width:100%;text-align:left;padding:7px 10px;margin:0 0 10px;border-radius:6px;font-size:12.5px;color:var(--text);background:#1E2A35;border:1px solid var(--line);cursor:pointer}.freebtn:hover{background:#263443}.freebtn span{color:var(--mute)}
 .warnbox{background:#3a1f1f;border:1px solid #6b2a2a;color:#ffb3a8;border-radius:6px;padding:10px 12px;font-size:13px;margin:10px 0}
 .btn.danger{background:#c0392b!important;color:#fff!important;border-color:transparent}.btn.danger:hover{background:#d64535!important}
+.musicchip{font-size:12px;color:#ffcf8a;background:#3a2e1a;border:1px solid #6b5326;border-radius:6px;padding:6px 8px}.musicchip.ok{color:#cfe9a0;background:#26331b;border-color:#4a6326}
+.clip .acts{flex-wrap:wrap}
 .support{width:100%;margin:2px 0 0;font-size:12px;color:var(--mute);background:none;border:0;padding:6px 10px;cursor:pointer;text-align:left;border-radius:6px}
 .support:hover{color:var(--text)}
 .suppop{position:fixed;left:16px;bottom:56px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
@@ -1161,6 +1163,8 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
       <div class="hint">Finds the most-viewed Shorts about the same streamer and game, reads how they open, and picks and titles clips like the winners.</div>
       <label class="toggle" style="margin-top:10px"><input type="checkbox" id="sVision" checked><span></span>Look at the picture before the final pick</label>
       <div class="hint">The best candidates get judged on what happens on screen (3 frames each, with Gemini or a Groq vision model). Action moves up, talk over a still screen moves down.</div>
+      <label class="toggle" style="margin-top:10px"><input type="checkbox" id="sMute" checked><span></span>Take songs out of clips by themselves</label>
+      <div class="hint">Every clip is checked for music (Gemini listens to it). Where a song plays, the music is removed and the voices kept, so the Short doesn't get blocked. "Restore sound" on a clip undoes it.</div>
     </div>
     <div class="f field"><label>Downloads</label>
       <label class="toggle"><input type="checkbox" id="sParts" checked><span></span>Download only the parts that are needed (YouTube and Twitch links)</label>
@@ -1473,7 +1477,7 @@ function renderClips(j){
         ${c.rendering?'<div class="busy"><div class="spin"></div>Re-rendering…</div>':''}</div>
       <div class="cbody">
         <h3>${esc(c.title)}</h3>
-        <div class="why">${esc(c.reason)}</div>${pick}
+        <div class="why">${esc(c.reason)}</div>${pick}${musicHtml(c)}
         ${starsHtml(c)}<div class="pubwrap" data-n="${c.n}">${pubsHtml(c)}</div>
         <div class="cap">${esc(c.caption)}<div class="tags">${esc(tags)}</div></div>
         <div style="font-size:11.5px;color:var(--mute)">From ${fmt(c.start+(c.offset||0))} to ${fmt(c.end+(c.offset||0))} ${c.seg?'into the stream':'in the source'}</div>
@@ -1482,6 +1486,7 @@ function renderClips(j){
           <button class="btn" onclick="editClip(${c.n})">Edit</button>
           <button class="btn" onclick="publishOne(${c.n})">Publish</button>
           <button class="btn" onclick="reveal('${c.file}')">Explorer</button>
+          <button class="btn" onclick="setVoice(${c.n},${c.voice_only?'false':'true'})" ${c.rendering?'disabled':''} title="${c.voice_only?'Put the original sound back':'Take the background music out, keep the voices (game sounds without voices go too)'}">${c.voice_only?'Restore sound':'Mute music'}</button>
         </div>
       </div></div>`}).join('');
   box._clips=j.clips;
@@ -1529,6 +1534,11 @@ async function exportPack(){
   try{await api(`/api/jobs/${current}/export`,{method:'POST'});toast('Writing captions in English and Bangla…')}catch(e){return toast(e.message)}
   clearInterval(poll);poll=setInterval(()=>refresh(),1200);refresh()}
 function clipBy(n){return $('#clips')._clips.find(c=>c.n===n)}
+function musicHtml(c){const m=c.music||{};if(!m.music)return'';
+  return c.voice_only?`<div class="musicchip ok" title="${esc(m.what||'')}">♪ Music detected and taken out${c.voice_ranges&&c.voice_ranges.length?' where it plays':''}</div>`
+    :`<div class="musicchip" title="${esc(m.what||'')}">♪ Music detected${m.what?': '+esc(m.what):''}. Songs can get a Short blocked. Use Mute music before posting.</div>`}
+async function setVoice(n,on){try{await api(`/api/jobs/${current}/clips/${n}/voice`,{method:'POST',body:JSON.stringify({on})});
+  toast(on?'Taking the background music out. The clip re-renders in a minute or two.':'Putting the original sound back…');clearInterval(poll);poll=setInterval(()=>refresh(),1500);refresh(true)}catch(e){toast(e.message)}}
 function copyCap(n){const c=clipBy(n);navigator.clipboard.writeText(`${c.caption}\n\n${(c.hashtags||[]).join(' ')}`).then(()=>toast('Caption copied'),()=>toast('Copy failed'))}
 function reveal(p){api('/api/reveal',{method:'POST',body:JSON.stringify({path:p})})}
 
@@ -1584,7 +1594,7 @@ async function openSettings(){
   $('#sWhisper').value=s.groq_whisper_model;$('#sOllama').value=s.ollama_model;$('#sOllamaUrl').value=s.ollama_url;$('#sOut').value=s.output_dir;$('#sCookies').value=s.cookies_browser||'';$('#sLocalW').value=s.local_whisper_model||'small';
   $('#sKeys').value=s.groq_extra_keys||'';$('#sGem').value=s.gemini_api_key||'';$('#sEnc').value=s.video_encoder||'auto';
   $('#sBk').value=s.backup_ai||'';$('#sBkKey').value=s.backup_key||'';$('#sBkModel').value=s.backup_model||'';bkHint();
-  $('#sLearn').checked=s.learn_taste!==false;$('#sNiche').checked=s.niche_research!==false;$('#sVision').checked=s.vision_rerank!==false;$('#sParts').checked=s.parts_only!==false;tasteInfo();
+  $('#sLearn').checked=s.learn_taste!==false;$('#sNiche').checked=s.niche_research!==false;$('#sVision').checked=s.vision_rerank!==false;$('#sParts').checked=s.parts_only!==false;$('#sMute').checked=s.auto_mute_music!==false;tasteInfo();
   $('#settings').classList.add('on');
 }
 const BK={gemini:['Google Gemini','https://aistudio.google.com/apikey'],openrouter:['OpenRouter','https://openrouter.ai/keys'],cerebras:['Cerebras','https://cloud.cerebras.ai']};
@@ -1597,7 +1607,7 @@ async function saveSettings(){
     groq_llm_model:$('#sLlm').value,groq_whisper_model:$('#sWhisper').value,ollama_model:$('#sOllama').value.trim(),
     ollama_url:$('#sOllamaUrl').value.trim(),output_dir:$('#sOut').value.trim(),cookies_browser:$('#sCookies').value,local_whisper_model:$('#sLocalW').value,
     groq_extra_keys:$('#sKeys').value.trim(),gemini_api_key:$('#sGem').value.trim(),video_encoder:$('#sEnc').value,
-    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked,niche_research:$('#sNiche').checked,vision_rerank:$('#sVision').checked,parts_only:$('#sParts').checked})});
+    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked,niche_research:$('#sNiche').checked,vision_rerank:$('#sVision').checked,parts_only:$('#sParts').checked,auto_mute_music:$('#sMute').checked})});
     closeSettings();toast('Settings saved');loadStatus();loadHistory()}catch(e){toast(e.message)}
 }
 document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('on')});

@@ -327,6 +327,32 @@ def vision_json(prompt, images, log=None):
     raise AIUnavailable("; ".join(errs) or "no AI that can see pictures is set up (add a Gemini key)")
 
 
+def audio_json(prompt, audio, mime="audio/mp3", log=None):
+    """Asks Gemini about a short sound file. Returns (dict, engine) or raises AIUnavailable."""
+    import base64
+    s = _settings()
+    gkey = (backup_ai(s) or ("", "", ""))[1] if has_gemini(s) else s.get("gemini_api_key", "")
+    if not gkey or s.get("engine") == "local":
+        raise AIUnavailable("needs a Gemini key")
+    key = "".join(str(gkey).split())
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": base64.b64encode(audio).decode()}}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1024, "responseMimeType": "application/json"}}
+    errs = []
+    for m in _gemini_models(key)[:3]:
+        try:
+            r = requests.post(GEMINI + m + ":generateContent", json=body, timeout=120, headers={"x-goog-api-key": key})
+            if r.status_code >= 400:
+                errs.append(f"{m}: {_gem_error(r)[:120]}")
+                if r.status_code in (404, 429) or r.status_code >= 500:
+                    continue
+                break
+            parts = r.json()["candidates"][0]["content"]["parts"]
+            return parse_json("".join(p.get("text", "") for p in parts if not p.get("thought"))), "Gemini · " + m
+        except Exception as e:
+            errs.append(f"{m}: {str(e)[:120]}")
+    raise AIUnavailable("; ".join(errs) or "Gemini didn't answer")
+
+
 # OpenAI-style free APIs that work as a backup
 BACKUPS = {
     "gemini": {"name": "Gemini", "key_url": "https://aistudio.google.com/apikey"},

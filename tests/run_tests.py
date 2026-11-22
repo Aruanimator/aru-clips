@@ -401,10 +401,38 @@ class PartsOnly(unittest.TestCase):
             media.download_sound, media.download_preview, media.download_section, media.download = old
 
 
+class Music(unittest.TestCase):
+    def test_detect_mute_and_hold_back(self):
+        import music
+        fresh_out("out_music")
+        old = (ai.audio_json, music._ensure, music.separate)
+        try:
+            ai.audio_json = lambda prompt, audio, mime="audio/mp3", log=None: ({"music": True, "song": True, "where": [[2, 6]], "what": "pop song"}, "fake")
+            music._ensure = lambda log=print: None
+            music.separate = lambda mix: mix * 0.1
+            up = config.UPLOADS / "talk.mp4"; config.UPLOADS.mkdir(parents=True, exist_ok=True); shutil.copy(VIDEO, up)
+            publish.set_auto(True, 0, ["youtube"], 0)
+            POSTED.clear()
+            jid = jobs.create({"file": "talk.mp4", "title": "M", "source_type": "stream", "num_clips": 1, "min_len": 15, "max_len": 30,
+                               "crop_mode": "center", "format": "9:16"})
+            j = jobs.JOBS[jid]
+            self.assertTrue(wait(lambda: j.get("status") in ("done", "error")))
+            c = next(c for c in j.data["clips"] if c.get("file"))
+            self.assertTrue(c["music"]["music"]); self.assertTrue(c["voice_only"]); self.assertEqual(c["voice_ranges"], [[2, 6]])
+            # music that's still in is never auto-published
+            jobs.set_voice_only(j, c["n"], False)
+            self.assertFalse(c["voice_only"]); self.assertIsNone(c.get("voice_ranges"))
+            POSTED.clear(); jobs.auto_publish(j, c); time.sleep(1)
+            self.assertEqual(POSTED, [])
+        finally:
+            ai.audio_json, music._ensure, music.separate = old
+            publish.set_auto(False, 80, [], 30)
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     suite = unittest.TestSuite()
-    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics, Niche, Vision, PartsOnly):
+    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics, Niche, Vision, PartsOnly, Music):
         if not only or case.__name__ in only:
             suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     r = unittest.TextTestRunner(verbosity=2).run(suite)
