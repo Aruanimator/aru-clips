@@ -6,6 +6,7 @@ tools/
 *.zip
 *.exe
 !download/AruClips.exe
+!download/Aru-Clips-mac.zip
 launcher/payload.zip
 launcher/*.syso
 launcher/go.work

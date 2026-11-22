@@ -275,7 +275,7 @@ async def upload(file: UploadFile = File(...)):
 @app.post("/api/jobs")
 def create_job(body: dict = Body(...)):
     if not FFMPEG:
-        raise HTTPException(400, "ffmpeg is missing. Run Install.bat again.")
+        raise HTTPException(400, "ffmpeg is missing. Close Aru Clips and open it again: it sets ffmpeg up by itself.")
     if not body.get("url") and not body.get("file"):
         raise HTTPException(400, "Paste a link or drop a video first")
     save_settings({"num_clips": body.get("num_clips", 6), "caption_style": body.get("caption_style", "bold"),
@@ -1142,7 +1142,7 @@ if __name__ == "__main__":
         print("  No free network port between 8765 and 8800. Close other apps and try again.")
         sys.exit(1)
     if not FFMPEG:
-        print("  ffmpeg was not found. Run Install.bat again (it downloads ffmpeg into the tools folder).")
+        print("  ffmpeg was not found. Open Aru Clips again (the app sets it up), or install ffmpeg when running from source.")
     if "--no-browser" not in sys.argv:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     jobs.start_scheduler()
