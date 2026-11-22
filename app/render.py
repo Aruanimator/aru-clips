@@ -1160,10 +1160,10 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
         # the hook is split into lines here and each line placed on its own: a card's boxes all sit on one layer and
         # the letters on the layer above, so a bigger hook never has one line's box covering the line above it
         fst, pad = 70 * sc * tsc, (16 * sc * tsc if not outline else 6 * sc * tsc)
-        max_w, cw = W * 0.88 - 2 * pad, fst * 0.56
+        max_w = W * 0.88
         rows_, cur = [], ""
-        for wd in clean(title, lk.get("mask_swears")).split():
-            if cur and len(cur + " " + wd) * cw > max_w:
+        for wd in clean(title, lk.get("mask_swears")).split():  # measured with the hook's real font, like the editor does
+            if cur and text_width(tfont, cur + " " + wd, fst) > max_w:
                 rows_.append(cur); cur = wd
             else:
                 cur = (cur + " " + wd).strip()
@@ -1364,6 +1364,41 @@ def font_files():
     for d in (ASSETS / "fonts", USER_FONTS):
         out += [p for p in d.glob("*") if p.suffix.lower() in (".ttf", ".otf")]
     return out
+
+
+_fmetrics = {}
+
+
+def _font_metrics(family):
+    """(cmap, advances, units per em, libass em) for a font family, or None when the font file isn't found."""
+    if family in _fmetrics:
+        return _fmetrics[family]
+    hit = None
+    try:
+        from fontTools.ttLib import TTFont
+        for p in font_files():
+            t = TTFont(str(p), lazy=True)
+            n = t["name"]
+            names = {re.sub(r"\s+Regular$", "", str(n.getDebugName(i) or "")) for i in (1, 4)}
+            if family in names:
+                upem, o, h = t["head"].unitsPerEm, t["OS/2"], t["hhea"]
+                tall = (o.usWinAscent + o.usWinDescent) or (h.ascent - h.descent)
+                hit = (t.getBestCmap(), {k: v[0] for k, v in t["hmtx"].metrics.items()}, upem, upem / tall if tall > 0 else 0.8)
+                break
+    except Exception:
+        hit = None
+    _fmetrics[family] = hit
+    return hit
+
+
+def text_width(family, text, fs):
+    """How wide `text` is in pixels at ASS font size `fs` (libass sizes fonts by their line height, not their em)."""
+    m = _font_metrics(family)
+    if not m:
+        return len(text) * fs * 0.56
+    cmap, adv, upem, em = m
+    units = sum(adv.get(cmap.get(ord(ch)), upem * 0.55) for ch in text)
+    return units / upem * fs * em
 
 
 def multicam_cuts(groups, dur):

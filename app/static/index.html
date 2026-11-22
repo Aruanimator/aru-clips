@@ -2083,14 +2083,19 @@ function sdText(){
     cap.style.paintOrder='stroke fill'}
   ttl.style.display=$('#sdTitleOn').checked&&$('#sdTitle').value.trim()?'':'none';
   const tsc=sd.look.title_scale||1,outl=sd.look.title_fmt==='outline';
-  ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl).map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
+  ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl,sd.look.font||'Montserrat Black').map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
   ttl.style.fontFamily=fam;ttl.style.setProperty('--tbg',outl?'transparent':(sd.look.title_bg||'#fff'));ttl.style.color=outl?(sd.look.title_fg||'#fff'):(sd.look.title_fg||'#101010');
   ttl.querySelectorAll('span').forEach(e=>{e.style.webkitTextStroke=outl?'.12em '+(sd.look.title_bg||'#000'):'';e.style.paintOrder='stroke fill'});
   ttl.style.fontSize=(70*scale*tsc/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:11)+'%';ttl.style.transform=tp.title?'translate(-50%,-50%)':'translate(-50%,0)';
 }
 // the hook's lines, split the same way the renderer splits them
-function hookRows(text,W,scale,tsc,outl){const fs=70*scale*tsc,pad=(outl?6:16)*scale*tsc,maxW=W*0.88-2*pad,cw=fs*0.56;
-  const rows=[];let cur='';String(text||'').split(/\s+/).filter(Boolean).forEach(w=>{if(cur&&(cur+' '+w).length*cw>maxW){rows.push(cur);cur=w}else cur=(cur+' '+w).trim()});
+let _hookCtx=null;
+function hookRows(text,W,scale,tsc,outl,fam){const fs=70*scale*tsc,pad=(outl?6:16)*scale*tsc,maxW=W*0.88;
+  _hookCtx=_hookCtx||document.createElement('canvas').getContext('2d');
+  const f=fam||'Montserrat Black',known=fontList.some(x=>x.family===f);_hookCtx.font=`${fs*assEm(f)}px "${f}"`;
+  const wid=t=>known?_hookCtx.measureText(t).width:t.length*fs*0.56;  // same font and size as the renderer
+  if(known&&document.fonts&&!document.fonts.check(_hookCtx.font))document.fonts.load(_hookCtx.font).then(()=>sd&&sdText()).catch(()=>{});
+  const rows=[];let cur='';String(text||'').split(/\s+/).filter(Boolean).forEach(w=>{if(cur&&wid(cur+' '+w)>maxW){rows.push(cur);cur=w}else cur=(cur+' '+w).trim()});
   if(cur)rows.push(cur);return rows}
 (function(){ // drag caption + title inside the result
   const drag=(el,cb)=>el.addEventListener('pointerdown',e=>{
