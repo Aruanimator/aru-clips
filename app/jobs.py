@@ -2,7 +2,7 @@
 import json, math, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
 import numpy as np
 from config import output_dir, load_settings, slug, FFMPEG, popen, run, UPLOADS
-import ai, media, picker, render, signals, publish, taste, post as postmod, niche as nichemod
+import ai, media, picker, render, signals, publish, taste, post as postmod, niche as nichemod, vision
 
 JOBS = {}
 _pipe_lock = threading.Lock()   # one download/transcribe pipeline at a time
@@ -414,10 +414,16 @@ def _run_job(j):
             j.log(f"Couldn't check the streamer's screen time ({str(e)[:120]})")
     n_want = int(o.get("num_clips", 6))
     j.stage("Finding the best moments…", 0.62)
-    clips, eng = picker.pick_audience(tr, total, n_want * 3 if ok else n_want, float(o.get("min_len", 20)), float(o.get("max_len", 60)),
+    see = vision.available()  # an AI that can see frames re-ranks extra candidates; without one the pick is the same as before
+    clips, eng = picker.pick_audience(tr, total, n_want * 3 if ok else (n_want * 2 if see else n_want), float(o.get("min_len", 20)), float(o.get("max_len", 60)),
                                       mode, o.get("prompt", ""), chat, heat, loud, j.log,
                                       lambda f: j.set(progress=round(0.62 + 0.08 * f, 3)),
                                       o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o), niche=nichemod.text(j))
+    if see and clips:
+        j.stage("Looking at the picture of the best moments…", 0.7)
+        clips = vision.rerank(clips, src, j.log, vision.what_for(mode, o.get("content")))
+        if not ok:
+            clips = sorted(clips, key=lambda c: -c["score"])[:n_want]
     if ok:
         clips = _prefer_split(clips, ok, n_want, float(o.get("min_len", 20)), j.log)
         clips = [picker.finish_sentence(c, tr["words"], tr["segments"], float(o.get("min_len", 20)), float(o.get("max_len", 60)), total)
@@ -612,9 +618,14 @@ def _run_chunked(j, o, mode):
             except Exception as e:
                 j.log(f"Couldn't check the streamer's screen time ({str(e)[:120]})")
         want = max(2, int(round(n_want * dur / total + 0.49)))
-        clips, eng = picker.pick_audience(tr, dur, want * 3 if ok else want, mn, mx, mode, o.get("prompt", ""), chat or None,
+        see = vision.available()
+        clips, eng = picker.pick_audience(tr, dur, want * 3 if ok else (want * 2 if see else want), mn, mx, mode, o.get("prompt", ""), chat or None,
                                           _slice_heat(heat, a, a + dur), loud, j.log, lambda f: None,
                                           o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o), niche=nichemod.text(j))
+        if see and clips:
+            clips = vision.rerank(clips, src, j.log, vision.what_for(mode, o.get("content")))
+            if not ok:
+                clips = sorted(clips, key=lambda c: -c["score"])[:want]
         if ok:
             clips = _prefer_split(clips, ok, want, mn, j.log)
             clips = [picker.finish_sentence(c, tr["words"], tr["segments"], mn, mx, dur) for c in clips]
@@ -1397,7 +1408,10 @@ def set_stay(j, n, pct):
     with j.lock:
         c["stay"] = pct
         j.save()
-    rate(j, n, stars)
+    # its own entry in the ratings: the stay rate never overwrites the stars you gave the clip yourself
+    words, _ = _words_for(j, c, edited=False)
+    text = " ".join(w["w"] for w in words if c["start"] <= w["s"] <= c["end"])
+    taste.record(f"{j.id}:{n}:stay", stars, c, text, (j.get("opts") or {}).get("content", "general"))
     return stars
 
 

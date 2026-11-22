@@ -283,6 +283,46 @@ def _gemini_chat(messages, key, model=None, json_mode=True):
     raise last or EngineError("Gemini", 0, "no Gemini model is available for this key")
 
 
+def vision_json(prompt, images, log=None):
+    """Asks an AI that can see pictures (Gemini, or a Groq vision model) about some JPEG frames. Returns (dict, engine)
+    or raises AIUnavailable when neither is set up or both fail."""
+    import base64
+    s = _settings()
+    if s.get("engine") == "local":
+        raise AIUnavailable("local only")
+    b64 = [base64.b64encode(im).decode() for im in images]
+    errs = []
+    gkey = (backup_ai(s) or ("", "", ""))[1] if has_gemini(s) else s.get("gemini_api_key", "")
+    if gkey:
+        key = "".join(str(gkey).split())
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}] + [{"inline_data": {"mime_type": "image/jpeg", "data": d}} for d in b64]}],
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096, "responseMimeType": "application/json"}}
+        for m in _gemini_models(key)[:3]:
+            try:
+                r = requests.post(GEMINI + m + ":generateContent", json=body, timeout=120, headers={"x-goog-api-key": key})
+                if r.status_code >= 400:
+                    errs.append(f"Gemini {m}: {_gem_error(r)[:120]}")
+                    if r.status_code in (404, 429) or r.status_code >= 500:
+                        continue
+                    break
+                parts = r.json()["candidates"][0]["content"]["parts"]
+                return parse_json("".join(p.get("text", "") for p in parts if not p.get("thought"))), "Gemini · " + m
+            except Exception as e:
+                errs.append(f"Gemini {m}: {str(e)[:120]}")
+    if has_groq(s):
+        vm = next((i for i in groq_models() if "llama-4" in i or "vision" in i), None)
+        if vm:
+            content = [{"type": "text", "text": prompt}] + [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + d}} for d in b64[:5]]
+            try:
+                out = groq_post("/chat/completions", json_body={"model": vm, "messages": [{"role": "user", "content": content}],
+                                                                "temperature": 0.2, "max_completion_tokens": 2048,
+                                                                "response_format": {"type": "json_object"}}, log=log)
+                return parse_json(out["choices"][0]["message"].get("content") or ""), "Groq · " + vm
+            except Exception as e:
+                errs.append(f"Groq {vm}: {str(e)[:120]}")
+    raise AIUnavailable("; ".join(errs) or "no AI that can see pictures is set up (add a Gemini key)")
+
+
 # OpenAI-style free APIs that work as a backup
 BACKUPS = {
     "gemini": {"name": "Gemini", "key_url": "https://aistudio.google.com/apikey"},

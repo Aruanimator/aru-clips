@@ -10,7 +10,7 @@ import requests
 import ai, media, publish
 from config import output_dir, load_settings
 
-KEEP_DAYS = 3
+KEEP_DAYS = 7       # a niche's trends move weekly, not hourly
 TOP_N = 30          # Shorts the AI looks at
 HOOKS_N = 6         # of those, how many get their opening words read
 _threads = {}       # job id -> thread
@@ -185,22 +185,28 @@ def research(o, streamer, title, log=print):
 
 
 def prompt_text(res):
-    """The brief as instructions for the AI that picks and titles clips."""
+    """The brief as short instructions for the AI that picks and titles clips (kept small: it rides on every request)."""
     if not res or not res.get("top"):
         return ""
     b, top = res.get("brief") or {}, res["top"]
-    t = (f"\n\nWhat is going viral in this niche right now (from the {len(top)} most-viewed Shorts for "
-         + ", ".join(f'"{q}"' for q in res["queries"]) + "). Pick and title clips like the winners:")
+    cut = lambda xs, k: "; ".join(str(x)[:90] for x in (xs or [])[:k])
+    t = f"\n\nTrends in this niche (top {len(top)} Shorts for \"{res['queries'][0]}\"):"
     if b.get("summary"):
-        t += "\n" + str(b["summary"])
-    for k, label in (("moments", "Moments that win"), ("titles", "Title patterns that win"), ("hooks", "How winners open"),
-                     ("avoid", "What the weak ones do (avoid)")):
+        t += " " + str(b["summary"])[:220]
+    for k, label, n in (("moments", "Winning moments", 4), ("titles", "Winning title patterns", 3), ("hooks", "Winners open with", 3),
+                        ("avoid", "Avoid", 2)):
         if b.get(k):
-            t += f"\n{label}: " + "; ".join(str(x) for x in b[k][:6])
-    if b.get("length"):
-        t += f"\nLength: {b['length']}"
-    t += "\nTop titles: " + " | ".join(f"\"{r['title']}\" ({r['views']:,})" for r in top[:8])
+            t += f"\n{label}: " + cut(b[k], n)
+    t += "\nTop titles: " + " | ".join(f"\"{r['title'][:70]}\"" for r in top[:3])
+    t += ("\nUse these trends to spot moments, but your channel's own rule wins for titles: name the stakes or a character "
+          "and leave the outcome open.")
     return t
+
+
+def forget(o, streamer, title):
+    """Drops the saved research for this niche, so the next run studies it fresh."""
+    f = _dir() / (_key(queries(streamer, o.get("game"), title)) + ".json")
+    f.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------- running beside the download

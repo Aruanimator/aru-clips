@@ -264,7 +264,13 @@ class Analytics(unittest.TestCase):
             self.assertEqual(clips[0]["yt"]["stars"], 1)
             self.assertEqual(clips[4]["yt"]["stars"], 5)
             self.assertEqual(clips[4]["yt"]["views"], 9000)
+            self.assertNotIn("Clip 4", taste.prompt_text(), "YouTube results don't teach scoring before 30 judged clips")
+            rep = analytics.report()
+            self.assertEqual(rep["best"][0]["title"], "Clip 4"); self.assertEqual(rep["worst"][0]["title"], "Clip 0")
+            old_min, taste.YT_MIN = taste.YT_MIN, 3
+            taste._cache["model"] = None
             txt = taste.prompt_text()
+            taste.YT_MIN = old_min; taste._cache["model"] = None
             self.assertIn("Clip 4", txt.split("Flopped")[0])
             self.assertIn("hook 4", txt)
             self.assertIn("Clip 0", txt.split("Flopped")[1])
@@ -311,10 +317,35 @@ class Niche(unittest.TestCase):
             niche._search_ytdlp, niche._search_api, niche.opening_words, ai.chat_json = old
 
 
+class Vision(unittest.TestCase):
+    def test_picture_moves_clips(self):
+        import vision
+        clips = [{"start": 10, "end": 30, "score": 80, "title": "Talk", "reason": "r"},
+                 {"start": 40, "end": 60, "score": 74, "title": "Crash", "reason": "r"}]
+        seen = []
+        old = ai.vision_json
+        try:
+            def fake(prompt, images, log=None):
+                seen.append(len(images))
+                return {"clips": [{"id": 1, "visual": 3, "opening": 2, "matches": False, "note": "menu screen"},
+                                  {"id": 2, "visual": 24, "opening": 9, "matches": True, "note": "car flips"}]}, "fake"
+            ai.vision_json = fake
+            vision.rerank(clips, str(VIDEO), log=lambda m: None)
+            self.assertEqual(seen, [2])
+            self.assertGreater(clips[1]["score"], clips[0]["score"])
+            self.assertIn("car flips", clips[1]["reason"])
+            ai.vision_json = lambda *a, **k: (_ for _ in ()).throw(ai.AIUnavailable("none"))
+            c2 = [dict(c, score=50) for c in clips]
+            vision.rerank(c2, str(VIDEO), log=lambda m: None)
+            self.assertEqual([c["score"] for c in c2], [50, 50], "no AI that sees pictures: nothing changes")
+        finally:
+            ai.vision_json = old
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     suite = unittest.TestSuite()
-    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics, Niche):
+    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics, Niche, Vision):
         if not only or case.__name__ in only:
             suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     r = unittest.TextTestRunner(verbosity=2).run(suite)

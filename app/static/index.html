@@ -629,7 +629,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .pubs .sched{background:#C2F54C1a;color:var(--accent);cursor:pointer}.pubs .sched:hover{background:#4a2026;color:#ffb3b3}
 #ppWhen button{white-space:nowrap}
 .stayask{display:inline-flex;align-items:center;gap:5px;background:#263443}.stayin{width:52px;background:#101820;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:1px 4px;font-size:11px}
-.ytan{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px}.ytan .hint{flex-basis:100%;margin:0}.ytan .hint.err{color:#ff8a7a}
+.ytan{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px}.ytan .hint{flex-basis:100%;margin:0}.anrep{flex-basis:100%;font-size:13px}.anrep ul{margin:4px 0 8px 18px;color:var(--mute)}.anrep a{color:var(--text)}.anrep .good{color:var(--accent);margin-top:6px}.anrep .bad{color:#ff8a7a;margin-top:6px}.ytan .hint.err{color:#ff8a7a}
 .niche{margin-top:10px}.niche summary{cursor:pointer;color:var(--accent);font-size:13px}.niche #jNicheBody{font-size:13px;color:var(--text);padding:8px 2px}.niche ul{margin:4px 0 10px 18px;color:var(--mute)}.niche a{color:var(--text)}.niche b{display:block;margin-top:6px}
 .ytstat{color:var(--mute)}.ytstat.good{color:var(--accent)}.ytstat.bad{color:#ff8a7a}
 .stayask button{font-size:11px;color:var(--accent)}.stayask a{color:var(--mute);text-decoration:none}
@@ -1030,7 +1030,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <label class="toggle"><input type="checkbox" id="anOn" onchange="saveAn()"><span></span>Learn from YouTube analytics every day at</label>
       <input type="time" class="inp rnum" id="anTime" value="10:00" onchange="saveAn()" style="width:140px">
       <button class="btn sm" onclick="runAn(this)">Check now</button>
-      <div class="hint" id="anState">Reads views and % watched of the clips it posted. Clips 2 to 14 days old that beat your usual clip teach it which moments, titles and hooks work, and flops teach it what to skip.</div>
+      <div class="anrep" id="anRep"></div>
+      <div class="hint" id="anState">Reads views and % watched of the clips it posted. Clips 2 to 14 days old are judged against your usual clip and shown here; once 30 are judged, they also teach scoring which moments, titles and hooks work.</div>
     </div>
     <div id="pubList" class="publist"></div>
     <div class="mrow"><button class="btn" onclick="$('#pubModal').classList.remove('on')">Close</button></div>
@@ -1045,7 +1046,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
     <div id="ppPost" class="pppost" style="display:none">
       <label>Title <small>YouTube title and the X post · <span id="ppTN"></span>/100</small></label>
       <input class="inp" id="ppT" maxlength="100" oninput="ppCount()">
-      <label>Description <small>YouTube description, Instagram and TikTok caption · <span id="ppCN"></span></small></label>
+      <label>Description <small>YouTube description and Instagram caption · <span id="ppCN"></span></small></label>
       <textarea class="inp" id="ppC" rows="5" oninput="ppCount()"></textarea>
       <label>Tags <small>YouTube only, comma-separated</small></label>
       <input class="inp" id="ppH" placeholder="GTA 6, GTA VI, Kai Cenat" oninput="ppCount()">
@@ -1103,6 +1104,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <div class="hint" id="tasteInfo"></div>
       <label class="toggle" style="margin-top:10px"><input type="checkbox" id="sNiche" checked><span></span>Study viral Shorts in the niche while a video downloads</label>
       <div class="hint">Finds the most-viewed Shorts about the same streamer and game, reads how they open, and picks and titles clips like the winners.</div>
+      <label class="toggle" style="margin-top:10px"><input type="checkbox" id="sVision" checked><span></span>Look at the picture before the final pick</label>
+      <div class="hint">The best candidates get judged on what happens on screen (3 frames each, with Gemini or a Groq vision model). Action moves up, talk over a still screen moves down.</div>
     </div>
     <div class="f field"><label>Save clips to</label><input class="inp" id="sOut"></div>
     <div class="f field"><label>Help and backup</label>
@@ -1521,7 +1524,7 @@ async function openSettings(){
   $('#sWhisper').value=s.groq_whisper_model;$('#sOllama').value=s.ollama_model;$('#sOllamaUrl').value=s.ollama_url;$('#sOut').value=s.output_dir;$('#sCookies').value=s.cookies_browser||'';$('#sLocalW').value=s.local_whisper_model||'small';
   $('#sKeys').value=s.groq_extra_keys||'';$('#sGem').value=s.gemini_api_key||'';$('#sEnc').value=s.video_encoder||'auto';
   $('#sBk').value=s.backup_ai||'';$('#sBkKey').value=s.backup_key||'';$('#sBkModel').value=s.backup_model||'';bkHint();
-  $('#sLearn').checked=s.learn_taste!==false;$('#sNiche').checked=s.niche_research!==false;tasteInfo();
+  $('#sLearn').checked=s.learn_taste!==false;$('#sNiche').checked=s.niche_research!==false;$('#sVision').checked=s.vision_rerank!==false;tasteInfo();
   $('#settings').classList.add('on');
 }
 const BK={gemini:['Google Gemini','https://aistudio.google.com/apikey'],openrouter:['OpenRouter','https://openrouter.ai/keys'],cerebras:['Cerebras','https://cloud.cerebras.ai']};
@@ -1534,7 +1537,7 @@ async function saveSettings(){
     groq_llm_model:$('#sLlm').value,groq_whisper_model:$('#sWhisper').value,ollama_model:$('#sOllama').value.trim(),
     ollama_url:$('#sOllamaUrl').value.trim(),output_dir:$('#sOut').value.trim(),cookies_browser:$('#sCookies').value,local_whisper_model:$('#sLocalW').value,
     groq_extra_keys:$('#sKeys').value.trim(),gemini_api_key:$('#sGem').value.trim(),video_encoder:$('#sEnc').value,
-    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked,niche_research:$('#sNiche').checked})});
+    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked,niche_research:$('#sNiche').checked,vision_rerank:$('#sVision').checked})});
     closeSettings();toast('Settings saved');loadStatus();loadHistory()}catch(e){toast(e.message)}
 }
 document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('on')});
@@ -2357,15 +2360,17 @@ function starsHtml(c,jid){const s=c.stars||0,j=jid?`,'${jid}'`:'';
 async function rateClip(n,k,jid){try{const r=await api(`/api/jobs/${jid||current}/clips/${n}/rate`,{method:'POST',body:JSON.stringify({stars:k})});
     if(k&&r.n===r.min)toast(`${r.n} ratings: scoring now follows your taste`);else if(k&&!r.learning&&r.enabled)toast(`Rated. ${Math.max(0,r.min-r.n)} more and scoring starts learning your taste`)}catch(e){toast(e.message)}
   jid?loadBoard():refresh(true)}
+async function nicheRefresh(){try{await api(`/api/jobs/${current}/niche/refresh`,{method:'POST'});toast('Studying this niche again. Takes about a minute.')}catch(e){toast(e.message)}}
 function nicheView(nc){const el=$('#jNiche');if(!nc||!nc.n){el.style.display='none';return}el.style.display='';
   el.querySelector('summary').textContent=`What's going viral here · studied ${nc.n} top Shorts for "${nc.queries[0]}"`;
   const b=nc.brief||{},li=(t,a)=>a&&a.length?`<b>${t}</b><ul>${a.map(x=>`<li>${esc(String(x))}</li>`).join('')}</ul>`:'';
   const html=(b.summary?`<p>${esc(b.summary)}</p>`:'')+li('Moments that win',b.moments)+li('Title patterns',b.titles)+li('How winners open',b.hooks)
     +(b.length?`<b>Length</b><p>${esc(b.length)}</p>`:'')+li('Avoid',b.avoid)
-    +`<b>Top Shorts</b><ul>${nc.top.map(r=>`<li><a href="https://youtube.com/shorts/${esc(r.id)}" target="_blank">${esc(r.title)}</a> · ${fmtN(r.views)} views</li>`).join('')}</ul>`;
+    +`<b>Top Shorts</b><ul>${nc.top.map(r=>`<li><a href="https://youtube.com/shorts/${esc(r.id)}" target="_blank">${esc(r.title)}</a> · ${fmtN(r.views)} views</li>`).join('')}</ul>`
+    +`<button class="btn sm" onclick="nicheRefresh()">Study it again</button> <small class="hint">Research is kept for 7 days per niche.</small>`;
   if($('#jNicheBody').innerHTML!==html)$('#jNicheBody').innerHTML=html}
 const fmtN=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?(n/1e3).toFixed(1).replace(/\.0$/,'')+'k':String(n);
-const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['youtube','instagram','tiktok','x'];
+const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['youtube','instagram'];  // TikTok/X names stay for old posts
 function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)return'';
   const retry=jid?`publishOne(${c.n},'${jid}')`:`publishOne(${c.n})`;
   return `<div class="pubs">${k.map(x=>{const s=p[x];
@@ -2443,23 +2448,19 @@ const PUBHELP={
     'Make your Instagram a Professional account (Creator or Business).',
     'Open <a href="https://developers.facebook.com/apps" target="_blank">developers.facebook.com/apps</a> → Create app → use case <b>Manage messaging and content on Instagram</b>.',
     'Instagram → API setup with Instagram login: add your account and press <b>Generate token</b>. Paste it here and press Connect.',
-    'The token lasts 60 days and the app renews it while you keep using it.']},
-  tiktok:{id:'Client key',secret:'Client secret',privacy:['public','friends','private'],steps:[
-    'Open <a href="https://developers.tiktok.com/apps" target="_blank">developers.tiktok.com</a> → Manage apps → Connect an app.',
-    'Add <b>Login Kit</b> (Desktop, redirect URI {R}) and <b>Content Posting API</b> with Direct Post on. Scopes: user.info.basic, video.publish, video.upload.',
-    'Paste the client key and secret here and press Connect.',
-    'Until TikTok reviews your app, TikTok only allows private (Only me) posts.']},
-  x:{id:'OAuth 2.0 Client ID',secret:'Client secret (if shown)',privacy:['public'],steps:[
-    'Open <a href="https://developer.x.com/en/portal/dashboard" target="_blank">developer.x.com</a> → your app → User authentication settings.',
-    'OAuth 2.0 on, type <b>Native App</b>, permissions <b>Read and write</b>, callback URI {R}.',
-    'Paste the OAuth 2.0 client ID (and secret if X shows one) here and press Connect.',
-    'Posting videos needs an X API plan that includes media uploads.']}};
+    'The token lasts 60 days and the app renews it while you keep using it.']}};
 async function openPub(){$('#pubModal').classList.add('on');renderPub();loadAn()}
 function anText(a){const s=a.state||{};if(!a.connected)return 'Connect YouTube below, then the app checks how your clips do once a day.';
   if(s.error)return '⚠ '+s.error;if(!s.last_run)return `First check today at ${a.settings.time}. Clips need to be 2 days old before they're judged.`;
   return `Last checked ${new Date(s.last_run*1000).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})}: ${s.note||''}`}
 async function loadAn(){try{const a=await api('/api/analytics');$('#anOn').checked=a.settings.on;$('#anTime').value=a.settings.time;
-  $('#anState').textContent=anText(a);$('#anState').classList.toggle('err',!!(a.state||{}).error)}catch(e){}}
+  $('#anState').textContent=anText(a);$('#anState').classList.toggle('err',!!(a.state||{}).error);anReport(a.report)}catch(e){}}
+function anReport(r){const el=$('#anRep');if(!r||!r.posted){el.innerHTML='';return}
+  const row=x=>`<li><a href="${esc(x.url||'#')}" target="_blank">${esc(x.title)}</a>${x.hook?` <i>“${esc(x.hook)}”</i>`:''} · ${fmtN(x.views)} views${x.avg_pct!=null?` · ${Math.round(x.avg_pct)}% watched`:''}</li>`;
+  el.innerHTML=`<b>Last 30 days</b> · ${r.posted} posted, ${r.judged} judged`
+    +(r.best.length?`<div class="good">What worked</div><ul>${r.best.map(row).join('')}</ul>`:'')
+    +(r.worst.length?`<div class="bad">What flopped</div><ul>${r.worst.map(row).join('')}</ul>`:'')
+    +`<div class="hint">${r.learning_from>=r.learning_needs?`Scoring learns from ${r.learning_from} judged clips.`:`Scoring starts learning from YouTube after ${r.learning_needs} judged clips (${r.learning_from} so far). Until then this is for you to read.`}</div>`}
 async function saveAn(){try{await api('/api/settings',{method:'POST',body:JSON.stringify({yt_analytics:$('#anOn').checked,yt_analytics_time:$('#anTime').value||'10:00'})});loadAn()}catch(e){toast(e.message)}}
 async function runAn(b){b.disabled=true;b.textContent='Checking…';
   try{const r=await api('/api/analytics/run',{method:'POST'});toast(r.state.note||'Checked')}catch(e){toast(e.message)}

@@ -70,6 +70,15 @@ def _windows(segs, max_chars=6000):  # small enough for free-tier token-per-minu
     return out
 
 
+def _cap(text, n):
+    """Keeps an add-on to the AI's instructions within n characters, cutting whole lines, so requests stay under the
+    free tiers' size limits (the core rubric always goes in full)."""
+    if len(text) <= n:
+        return text
+    out = text[:n]
+    return out[:out.rfind("\n")] if "\n" in out else out
+
+
 def _system(mode, lang, profile="general", game="any", niche=""):
     if mode in ("stream", "live"):
         focus = ("You cut gaming and IRL live streams into viral TikTok, Reels and Shorts clips. Hunt for the moments a viewer "
@@ -113,7 +122,7 @@ worked: "Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the od
 "Reality Check", "He's flying the burn!". Never give away the ending in the title.
 "caption" is a one-line hook for the description that teases the moment without spoiling it (one emoji at most).
 Answer with JSON only. Write titles, reasons and captions in the same
-language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + taste.prompt_text() + (niche or ""))
+language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + _cap(taste.prompt_text(), 2000) + _cap(niche or "", 900))
 
 
 def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", game="any", niche=""):

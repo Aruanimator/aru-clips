@@ -15,6 +15,8 @@ DEFAULT_WEIGHTS = {"hook": 1.0, "emotion": 1.3, "payoff": 0.9, "share": 0.8}  # 
 DEFAULT_BLEND = 0.35   # share of the final score that comes from audience signals
 PRIOR = 10             # the defaults count as this many ratings
 MIN_RATINGS = 6        # nothing changes before this many ratings
+YT_MIN = 30            # YouTube results only count once this many published clips have been judged: with fewer, views are
+                       # mostly luck of the first test batch, and learning from them would teach noise
 
 _lock = threading.Lock()
 _cache = {"t": 0, "model": None}
@@ -64,12 +66,18 @@ def enabled():
     return bool(load_settings().get("learn_taste", True))
 
 
+def yt_rows():
+    return sum(1 for r in load().values() if r.get("perf"))
+
+
 def model():
     """{'weights':..., 'blend':..., 'n':..., 'liked':[...], 'disliked':[...]} learned from the ratings."""
     if _cache["model"] and time.time() - _cache["t"] < 30:
         return _cache["model"]
     d = load()
     rows = list(d.values())
+    if sum(1 for r in rows if r.get("perf")) < YT_MIN:  # kept and shown, but not learned from yet
+        rows = [r for r in rows if not r.get("perf")]
     out = {"weights": dict(DEFAULT_WEIGHTS), "blend": DEFAULT_BLEND, "n": len(rows), "learning": False, "liked": [], "disliked": [],
            "yt_good": [], "yt_bad": []}
     if enabled() and len(rows) >= MIN_RATINGS:

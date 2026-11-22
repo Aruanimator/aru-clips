@@ -9,8 +9,8 @@ import requests
 from config import DATA
 
 ACCOUNTS = DATA / "accounts.json"
-PLATFORMS = ["youtube", "instagram", "tiktok", "x"]
-NAMES = {"youtube": "YouTube Shorts", "instagram": "Instagram Reels", "tiktok": "TikTok", "x": "X"}
+PLATFORMS = ["youtube", "instagram"]
+NAMES = {"youtube": "YouTube Shorts", "instagram": "Instagram Reels"}
 _lock = threading.RLock()
 _pending = {}  # OAuth state -> (platform, verifier, redirect)
 _queue = []
@@ -61,6 +61,7 @@ def public():
                   "client_id": a.get("client_id", ""), "has_secret": bool(a.get("client_secret")),
                   "privacy": a.get("privacy", "public"), "error": a.get("error", "")}
     out["auto"] = dict({"on": False, "min_score": 80, "platforms": [], "space_min": 30}, **d.get("_auto", {}))
+    out["auto"]["platforms"] = [p for p in out["auto"]["platforms"] if p in PLATFORMS]
     return out
 
 
@@ -117,15 +118,6 @@ def auth_url(platform, redirect):
                       "https://www.googleapis.com/auth/yt-analytics.readonly",
              "state": state, "code_challenge": ch, "code_challenge_method": "S256"}
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(q)
-    if platform == "x":
-        q = {"response_type": "code", "client_id": cid, "redirect_uri": redirect, "state": state,
-             "scope": "tweet.read tweet.write users.read media.write offline.access", "code_challenge": ch, "code_challenge_method": "S256"}
-        return "https://x.com/i/oauth2/authorize?" + urllib.parse.urlencode(q)
-    if platform == "tiktok":
-        ch_hex = hashlib.sha256(v.encode()).hexdigest()  # TikTok's desktop flow wants the challenge as hex
-        q = {"client_key": cid, "response_type": "code", "scope": "user.info.basic,video.publish,video.upload",
-             "redirect_uri": redirect, "state": state, "code_challenge": ch_hex, "code_challenge_method": "S256"}
-        return "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(q)
     raise PublishError("Instagram connects with an access token: paste it in Settings")
 
 
@@ -138,15 +130,6 @@ def finish_auth(state, code):
         r = requests.post("https://oauth2.googleapis.com/token", data={
             "code": code, "client_id": a["client_id"], "client_secret": a.get("client_secret", ""), "redirect_uri": redirect,
             "grant_type": "authorization_code", "code_verifier": v}, timeout=30)
-    elif platform == "x":
-        auth = (a["client_id"], a["client_secret"]) if a.get("client_secret") else None
-        r = requests.post("https://api.x.com/2/oauth2/token", auth=auth, data={
-            "code": code, "grant_type": "authorization_code", "client_id": a["client_id"], "redirect_uri": redirect,
-            "code_verifier": v}, timeout=30)
-    elif platform == "tiktok":
-        r = requests.post("https://open.tiktokapis.com/v2/oauth/token/", data={
-            "client_key": a["client_id"], "client_secret": a.get("client_secret", ""), "code": code,
-            "grant_type": "authorization_code", "redirect_uri": redirect, "code_verifier": v}, timeout=30)
     else:
         raise PublishError("unknown platform")
     t = r.json() if r.content else {}
@@ -187,14 +170,6 @@ def _token(platform):
         r = requests.post("https://oauth2.googleapis.com/token", data={
             "client_id": a["client_id"], "client_secret": a.get("client_secret", ""), "refresh_token": a["refresh_token"],
             "grant_type": "refresh_token"}, timeout=30)
-    elif platform == "x":
-        auth = (a["client_id"], a["client_secret"]) if a.get("client_secret") else None
-        r = requests.post("https://api.x.com/2/oauth2/token", auth=auth, data={
-            "refresh_token": a["refresh_token"], "grant_type": "refresh_token", "client_id": a["client_id"]}, timeout=30)
-    elif platform == "tiktok":
-        r = requests.post("https://open.tiktokapis.com/v2/oauth/token/", data={
-            "client_key": a["client_id"], "client_secret": a.get("client_secret", ""), "refresh_token": a["refresh_token"],
-            "grant_type": "refresh_token"}, timeout=30)
     else:  # Instagram long-lived tokens are refreshed for another 60 days
         r = requests.get("https://graph.instagram.com/refresh_access_token",
                          params={"grant_type": "ig_refresh_token", "access_token": a["access_token"]}, timeout=30)
@@ -218,17 +193,6 @@ def who(platform):
         name = items[0]["snippet"]["title"] if items else ""
         if r.status_code >= 400:
             raise PublishError("YouTube: " + r.text[:200])
-    elif platform == "x":
-        r = requests.get("https://api.x.com/2/users/me", headers=H, timeout=20)
-        if r.status_code >= 400:
-            raise PublishError("X: " + r.text[:200])
-        name = "@" + r.json()["data"]["username"]
-    elif platform == "tiktok":
-        r = requests.get("https://open.tiktokapis.com/v2/user/info/", params={"fields": "open_id,display_name"}, headers=H, timeout=20)
-        d = (r.json() if r.content else {}).get("data", {}).get("user", {})
-        if r.status_code >= 400:
-            raise PublishError("TikTok: " + r.text[:200])
-        name = d.get("display_name", "")
     else:
         name, uid = _ig_me(tok)
         update(platform, user_id=uid)
@@ -352,92 +316,7 @@ def up_instagram(path, meta, log, prog=_noprog):
     return link or "https://instagram.com/" + a.get("user", "").lstrip("@")
 
 
-def up_tiktok(path, meta, log, prog=_noprog):
-    tok = _token("tiktok")
-    a = acct("tiktok")
-    H = {"Authorization": "Bearer " + tok, "Content-Type": "application/json; charset=UTF-8"}
-    ci = requests.post("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", headers=H, timeout=30).json().get("data", {})
-    opts = ci.get("privacy_level_options") or ["SELF_ONLY"]
-    want = {"private": "SELF_ONLY", "friends": "MUTUAL_FOLLOW_FRIENDS"}.get(a.get("privacy"), "PUBLIC_TO_EVERYONE")
-    level = want if want in opts else ("SELF_ONLY" if "SELF_ONLY" in opts else opts[0])
-    if level != want:
-        log("TikTok only lets this app post privately until TikTok approves it (app audit), so the clip was posted as private")
-    size = path.stat().st_size
-    chunk = size if size <= 64 * 1024 * 1024 else 10 * 1024 * 1024
-    n = max(1, size // chunk)
-    body = {"post_info": {"title": _text(meta, 2200), "privacy_level": level, "disable_comment": False, "disable_duet": False,
-                          "disable_stitch": False},
-            "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": n}}
-    r = requests.post("https://open.tiktokapis.com/v2/post/publish/video/init/", headers=H, json=body, timeout=60)
-    d = r.json() if r.content else {}
-    if r.status_code >= 400 or not d.get("data", {}).get("upload_url"):
-        raise PublishError("TikTok: " + str(d.get("error", {}).get("message") or r.text)[:300])
-    url, pid = d["data"]["upload_url"], d["data"]["publish_id"]
-    with open(path, "rb") as f:
-        for i in range(n):
-            a0 = i * chunk
-            part = f.read(chunk if i < n - 1 else size - a0)
-            r = requests.put(url, data=part, timeout=900, headers={"Content-Type": "video/mp4", "Content-Length": str(len(part)),
-                                                                    "Content-Range": f"bytes {a0}-{a0 + len(part) - 1}/{size}"})
-            if r.status_code >= 400:
-                raise PublishError("TikTok upload: " + r.text[:300])
-            prog(int(100 * (a0 + len(part)) / size))
-    prog(100, "processing")
-    for _ in range(90):
-        st = requests.post("https://open.tiktokapis.com/v2/post/publish/status/fetch/", headers=H, json={"publish_id": pid}, timeout=30).json()
-        s = st.get("data", {}).get("status")
-        if s == "PUBLISH_COMPLETE":
-            ids = st["data"].get("publicaly_available_post_id") or st["data"].get("publicly_available_post_id") or []
-            return f"https://www.tiktok.com/@{a.get('user', '')}/video/{ids[0]}" if ids else "https://www.tiktok.com/"
-        if s == "FAILED":
-            raise PublishError("TikTok: " + str(st["data"].get("fail_reason", "failed")))
-        time.sleep(5)
-    return "https://www.tiktok.com/ (still processing)"
-
-
-def up_x(path, meta, log, prog=_noprog):
-    tok = _token("x")
-    H = {"Authorization": "Bearer " + tok}
-    size = path.stat().st_size
-    r = requests.post("https://api.x.com/2/media/upload/initialize", headers=H, timeout=60,
-                      json={"media_type": "video/mp4", "total_bytes": size, "media_category": "amplify_video"})
-    d = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise PublishError("X: " + str(d.get("detail") or d.get("title") or r.text)[:300])
-    mid = d["data"]["id"]
-    chunk = 4 * 1024 * 1024
-    with open(path, "rb") as f:
-        i = 0
-        while True:
-            part = f.read(chunk)
-            if not part:
-                break
-            r = requests.post(f"https://api.x.com/2/media/upload/{mid}/append", headers=H, timeout=600,
-                              data={"segment_index": str(i)}, files={"media": ("clip.mp4", part, "application/octet-stream")})
-            if r.status_code >= 400:
-                raise PublishError("X upload: " + r.text[:300])
-            i += 1
-            prog(int(100 * min(size, i * chunk) / size))
-    prog(100, "processing")
-    r = requests.post(f"https://api.x.com/2/media/upload/{mid}/finalize", headers=H, timeout=60)
-    info = (r.json() if r.content else {}).get("data", {}).get("processing_info")
-    while info and info.get("state") in ("pending", "in_progress"):
-        time.sleep(max(2, int(info.get("check_after_secs", 3))))
-        st = requests.get("https://api.x.com/2/media/upload", headers=H, params={"command": "STATUS", "media_id": mid}, timeout=30).json()
-        info = st.get("data", {}).get("processing_info")
-    if info and info.get("state") == "failed":
-        raise PublishError("X couldn't process the video: " + str(info.get("error", {}).get("message", ""))[:200])
-    text = (meta.get("title") or "")
-    tags = " ".join((meta.get("hashtags") or [])[:3])  # each once, from the description
-    text = (text + (" " + tags if tags else ""))[:270]
-    r = requests.post("https://api.x.com/2/tweets", headers=H, timeout=60, json={"text": text, "media": {"media_ids": [mid]}})
-    d = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise PublishError("X post: " + str(d.get("detail") or d.get("title") or r.text)[:300])
-    return f"https://x.com/{acct('x').get('user', '@i').lstrip('@')}/status/{d['data']['id']}"
-
-
-UPLOADERS = {"youtube": up_youtube, "instagram": up_instagram, "tiktok": up_tiktok, "x": up_x}
+UPLOADERS = {"youtube": up_youtube, "instagram": up_instagram}
 
 
 # ------------------------------------------------------------------ queue (one upload at a time)

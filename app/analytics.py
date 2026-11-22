@@ -45,6 +45,21 @@ def video_id(url):
     return m.group(1) if m else None
 
 
+def _pct_rank(x, xs):
+    below = sum(1 for v in xs if v < x)
+    same = sum(1 for v in xs if v == x)
+    return (below + 0.5 * same) / max(1, len(xs))
+
+
+def stars_by_spread(stats, all_stats):
+    """With 8+ clips that have numbers: judged against your own channel's spread (views and % watched, equally),
+    so 'good' means good for this channel, not a fixed number."""
+    vs = [s["views"] for s in all_stats if s.get("views") is not None]
+    ps = [s["avg_pct"] for s in all_stats if s.get("avg_pct") is not None]
+    m = (_pct_rank(stats.get("views") or 0, vs) + _pct_rank(stats.get("avg_pct") or 0, ps)) / 2
+    return 5 if m >= 0.8 else 4 if m >= 0.6 else 3 if m >= 0.4 else 2 if m >= 0.2 else 1
+
+
 def stars_for(stats, median_views):
     """1-5 stars from how well a clip held viewers and how its views compare with the channel's usual clip."""
     pct, views = stats.get("avg_pct"), stats.get("views") or 0
@@ -118,6 +133,8 @@ def run(log=print):
         known = sorted(s["views"] for s in stats.values() if s.get("views") is not None)
         median = known[len(known) // 2] if len(known) >= 4 else None
         learned = 0
+        with_pct = [s for s in stats.values() if s.get("avg_pct") is not None]
+        spread = len(with_pct) >= 8
         for j, c, vid, age in items:
             s = stats.get(vid)
             if not s:
@@ -125,7 +142,7 @@ def run(log=print):
             s = dict(s, checked=int(now), age_days=round(age, 1))
             judge = MIN_AGE_DAYS <= age <= MAX_AGE_DAYS + 1 and s.get("avg_pct") is not None
             if judge or (age > MAX_AGE_DAYS and not c.get("yt", {}).get("stars")):
-                s["stars"] = stars_for(s, median)
+                s["stars"] = stars_by_spread(s, with_pct) if spread else stars_for(s, median)
             elif c.get("yt", {}).get("stars"):
                 s["stars"] = c["yt"]["stars"]  # past 14 days: keep the verdict it had
             with j.lock:
@@ -148,6 +165,25 @@ def run(log=print):
         return _save_state(last_run=time.time(), error=str(e)[:300])
     finally:
         _run_lock.release()
+
+
+def report(days=30):
+    """What worked and what didn't among the clips posted in the last `days` days, for the weekly look."""
+    import jobs
+    jobs.load_all()
+    now, rows = time.time(), []
+    for j in list(jobs.JOBS.values()):
+        for c in j.data.get("clips", []):
+            y, st = c.get("yt") or {}, ((c.get("published") or {}).get("youtube") or {})
+            if y.get("views") is None or now - (st.get("at") or 0) > days * 86400:
+                continue
+            rows.append({"jid": j.id, "n": c["n"], "title": c.get("title", ""), "hook": c.get("caption", ""), "views": y.get("views"),
+                         "avg_pct": y.get("avg_pct"), "stars": y.get("stars"), "url": st.get("url"), "age_days": y.get("age_days")})
+    judged = [r for r in rows if r.get("stars")]
+    best = sorted([r for r in judged if r["stars"] >= 4], key=lambda r: (-r["stars"], -(r["views"] or 0)))[:3]
+    worst = sorted([r for r in judged if r["stars"] <= 2], key=lambda r: (r["stars"], r["views"] or 0))[:3]
+    return {"best": best, "worst": worst, "posted": len(rows), "judged": len(judged),
+            "learning_from": taste.yt_rows(), "learning_needs": taste.YT_MIN}
 
 
 def due(now=None):
