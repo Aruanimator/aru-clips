@@ -8,4 +8,5 @@ Still open:
 - Check campaign rules (length, watermark, credit) before publishing.
 - Verify checksums of Python/ffmpeg downloaded on first run.
 - Frame-based clip judging (the AI looks at frames, not only the transcript).
-- Pull YouTube's "stayed to watch" automatically (needs the YouTube Analytics API; for now it's typed in).
+- YouTube's exact "stayed to watch" (viewed vs swiped away) isn't in the Analytics API; the daily check uses average % viewed
+  and views instead. The typed-in stay rate still works on top of it.

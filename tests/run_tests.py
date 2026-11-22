@@ -224,10 +224,65 @@ class Live(unittest.TestCase):
             gen.kill(); srv.shutdown()
 
 
+class Analytics(unittest.TestCase):
+    def test_daily_check_learns_titles(self):
+        import analytics
+        now = time.time()
+
+        class FakeJob:
+            def __init__(self, jid, clips):
+                self.id, self.data, self.lock = jid, {"clips": clips, "opts": {"content": "gaming"}}, threading.Lock()
+            def save(self): pass
+            def get(self, k, d=None): return self.data.get(k, d)
+        clips = [{"n": i + 1, "start": 0, "end": 30, "title": f"Clip {i}", "caption": f"hook {i}",
+                  "breakdown": {"hook": 10 + i, "emotion": 10, "payoff": 10, "share": 10},
+                  "published": {"youtube": {"state": "done", "url": f"https://youtube.com/shorts/vid{i:08d}", "at": now - (i + 3) * 86400}}}
+                 for i in range(5)]
+        fj = FakeJob("an1", clips)
+        views = [100, 300, 400, 500, 9000]
+        pct = [30, 55, 70, 85, 120]
+
+        class R:
+            def __init__(self, d, code=200): self._d, self.status_code, self.text = d, code, json.dumps(d)
+            def json(self): return self._d
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            ids = (params.get("id") or params.get("filters", "").split("==")[-1]).split(",")
+            if "youtube/v3/videos" in url:
+                return R({"items": [{"id": v, "statistics": {"viewCount": str(views[int(v[-1])]), "likeCount": "3"}} for v in ids]})
+            return R({"columnHeaders": [{"name": n} for n in ("video", "views", "averageViewPercentage", "averageViewDuration", "shares", "subscribersGained")],
+                      "rows": [[v, views[int(v[-1])], pct[int(v[-1])], 12.0, 1, 0] for v in ids]})
+        old = (dict(jobs.JOBS), analytics.requests.get, jobs.load_all, jobs._words_for)
+        try:
+            jobs.JOBS.clear(); jobs.JOBS["an1"] = fj
+            jobs.load_all = lambda: None
+            jobs._words_for = lambda j, c, edited=False: ([], None)
+            analytics.requests.get = fake_get
+            publish.update("youtube", access_token="t", expires=time.time() + 9999)
+            st = analytics.run(log=lambda m: None)
+            self.assertFalse(st.get("error"), st)
+            self.assertEqual(clips[0]["yt"]["stars"], 1)
+            self.assertEqual(clips[4]["yt"]["stars"], 5)
+            self.assertEqual(clips[4]["yt"]["views"], 9000)
+            txt = taste.prompt_text()
+            self.assertIn("Clip 4", txt.split("Flopped")[0])
+            self.assertIn("hook 4", txt)
+            self.assertIn("Clip 0", txt.split("Flopped")[1])
+            # missing permission gives a clear message
+            analytics.requests.get = lambda *a, **k: R({"error": "Request had insufficient authentication scopes."}, 403)
+            st = analytics.run(log=lambda m: None)
+            self.assertIn("Reconnect", st["error"])
+            # daily timing
+            analytics._save_state(last_run=0)
+            self.assertTrue(analytics.due(now=time.mktime(time.localtime()[:3] + (23, 59, 0, 0, 0, -1))))
+        finally:
+            jobs.JOBS.clear(); jobs.JOBS.update(old[0]); analytics.requests.get = old[1]; jobs.load_all = old[2]; jobs._words_for = old[3]
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     suite = unittest.TestSuite()
-    for case in (Security, PostText, VideoProject, LongVideo, Live):
+    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics):
         if not only or case.__name__ in only:
             suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     r = unittest.TextTestRunner(verbosity=2).run(suite)

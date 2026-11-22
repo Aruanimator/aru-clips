@@ -37,8 +37,8 @@ def _save(d):
     tmp.replace(_file())
 
 
-def record(key, stars, clip, excerpt="", content="general"):
-    """key: 'jobid:n'. stars 1-5, or 0 to remove the rating."""
+def record(key, stars, clip, excerpt="", content="general", perf=None):
+    """key: 'jobid:n' for the creator's stars, 'jobid:n:yt' for how it did on YouTube. stars 1-5, or 0 to remove."""
     with _lock:
         d = load()
         if not stars:
@@ -47,7 +47,9 @@ def record(key, stars, clip, excerpt="", content="general"):
             d[key] = {"stars": int(stars), "t": time.time(), "title": clip.get("title", ""), "content": content,
                       "breakdown": clip.get("breakdown"), "ai_score": clip.get("ai_score"), "signal": clip.get("signal"),
                       "score": clip.get("score"), "excerpt": " ".join(str(excerpt).split())[:220],
-                      "manual": bool(clip.get("manual"))}
+                      "manual": bool(clip.get("manual")), "hook": clip.get("caption", "")}
+            if perf:
+                d[key]["perf"] = perf
         _save(d)
         _cache["model"] = None
 
@@ -68,7 +70,8 @@ def model():
         return _cache["model"]
     d = load()
     rows = list(d.values())
-    out = {"weights": dict(DEFAULT_WEIGHTS), "blend": DEFAULT_BLEND, "n": len(rows), "learning": False, "liked": [], "disliked": []}
+    out = {"weights": dict(DEFAULT_WEIGHTS), "blend": DEFAULT_BLEND, "n": len(rows), "learning": False, "liked": [], "disliked": [],
+           "yt_good": [], "yt_bad": []}
     if enabled() and len(rows) >= MIN_RATINGS:
         out["learning"] = True
         ks = list(DEFAULT_WEIGHTS)
@@ -96,8 +99,13 @@ def model():
             out["blend"] = round((len(sig) * best + PRIOR * DEFAULT_BLEND) / (len(sig) + PRIOR), 3)
     recent = sorted(rows, key=lambda r: -r.get("t", 0))
     if enabled():
-        out["liked"] = [r for r in recent if r["stars"] >= 4 and r.get("excerpt")][:3]
-        out["disliked"] = [r for r in recent if r["stars"] <= 2 and r.get("excerpt")][:3]
+        mine = [r for r in recent if not r.get("perf")]
+        out["liked"] = [r for r in mine if r["stars"] >= 4 and r.get("excerpt")][:3]
+        out["disliked"] = [r for r in mine if r["stars"] <= 2 and r.get("excerpt")][:3]
+        yt = [r for r in rows if r.get("perf")]  # how published clips actually did on YouTube
+        best = sorted((r for r in yt if r["stars"] >= 4), key=lambda r: (-r["stars"], -(r["perf"].get("views") or 0)))
+        worst = sorted((r for r in yt if r["stars"] <= 2), key=lambda r: (r["stars"], r["perf"].get("views") or 0))
+        out["yt_good"], out["yt_bad"] = best[:4], worst[:3]
     _cache.update(t=time.time(), model=out)
     return out
 
@@ -113,9 +121,18 @@ def blend():
 def prompt_text():
     """Few-shot taste calibration added to the AI's instructions."""
     m = model()
+    t = ""
+    fmt = lambda r: (f'\n- "{r["title"]}"' + (f' (hook: "{r["hook"]}")' if r.get("hook") else "")
+                     + f' {r["perf"].get("views") or 0:,} views, {r["perf"].get("avg_pct") or 0:.0f}% watched: {r.get("excerpt", "")[:140]}')
+    if m.get("yt_good") or m.get("yt_bad"):
+        t += "\n\nHow clips this app posted actually did on YouTube. Find moments, titles and hooks like the winners:"
+        if m.get("yt_good"):
+            t += "\nDid well:" + "".join(fmt(r) for r in m["yt_good"])
+        if m.get("yt_bad"):
+            t += "\nFlopped (avoid moments, titles and hooks like these):" + "".join(fmt(r) for r in m["yt_bad"])
     if not (m["liked"] or m["disliked"]):
-        return ""
-    t = "\n\nThis creator rated earlier clips. Score new moments the way they would:"
+        return t
+    t += "\n\nThis creator rated earlier clips. Score new moments the way they would:"
     if m["liked"]:
         t += "\nLoved (5 stars style):" + "".join(f'\n- "{r["title"]}": {r["excerpt"]}' for r in m["liked"])
     if m["disliked"]:
@@ -126,4 +143,5 @@ def prompt_text():
 def summary():
     m = model()
     return {k: m[k] for k in ("weights", "blend", "n", "learning")} | {"min": MIN_RATINGS, "enabled": enabled(),
+                                                                       "from_youtube": sum(1 for r in load().values() if r.get("perf")),
                                                                        "defaults": DEFAULT_WEIGHTS, "default_blend": DEFAULT_BLEND}

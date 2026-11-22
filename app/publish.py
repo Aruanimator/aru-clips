@@ -113,7 +113,8 @@ def auth_url(platform, redirect):
     _pending[state] = (platform, v, redirect)
     if platform == "youtube":
         q = {"client_id": cid, "redirect_uri": redirect, "response_type": "code", "access_type": "offline", "prompt": "consent",
-             "scope": "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly",
+             "scope": "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly "
+                      "https://www.googleapis.com/auth/yt-analytics.readonly",
              "state": state, "code_challenge": ch, "code_challenge_method": "S256"}
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(q)
     if platform == "x":

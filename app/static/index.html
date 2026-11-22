@@ -629,6 +629,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 .pubs .sched{background:#C2F54C1a;color:var(--accent);cursor:pointer}.pubs .sched:hover{background:#4a2026;color:#ffb3b3}
 #ppWhen button{white-space:nowrap}
 .stayask{display:inline-flex;align-items:center;gap:5px;background:#263443}.stayin{width:52px;background:#101820;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:1px 4px;font-size:11px}
+.ytan{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px}.ytan .hint{flex-basis:100%;margin:0}.ytan .hint.err{color:#ff8a7a}
+.ytstat{color:var(--mute)}.ytstat.good{color:var(--accent)}.ytstat.bad{color:#ff8a7a}
 .stayask button{font-size:11px;color:var(--accent)}.stayask a{color:var(--mute);text-decoration:none}
 .posttpl{margin-top:12px;font-size:13px}.posttpl summary{cursor:pointer;color:var(--mute)}.posttpl .field{margin-top:10px}
 .topbanner{display:flex;align-items:center;gap:10px;margin:14px auto 0;max-width:1100px;padding:10px 14px;border-radius:12px;background:#C2F54C14;border:1px solid #C2F54C40;font-size:13px}
@@ -1022,6 +1024,12 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
         <small class="hint">The "Game title" field (Grand Theft Auto VI) isn't available to apps; set it once in YouTube Studio.</small></div>
       <button class="btn" onclick="savePostTpl()">Save post text</button>
     </details>
+    <div class="ytan">
+      <label class="toggle"><input type="checkbox" id="anOn" onchange="saveAn()"><span></span>Learn from YouTube analytics every day at</label>
+      <input type="time" class="inp rnum" id="anTime" value="10:00" onchange="saveAn()" style="width:140px">
+      <button class="btn sm" onclick="runAn(this)">Check now</button>
+      <div class="hint" id="anState">Reads views and % watched of the clips it posted. Clips 2 to 14 days old that beat your usual clip teach it which moments, titles and hooks work, and flops teach it what to skip.</div>
+    </div>
     <div id="pubList" class="publist"></div>
     <div class="mrow"><button class="btn" onclick="$('#pubModal').classList.remove('on')">Close</button></div>
   </div>
@@ -2345,13 +2353,16 @@ function starsHtml(c,jid){const s=c.stars||0,j=jid?`,'${jid}'`:'';
 async function rateClip(n,k,jid){try{const r=await api(`/api/jobs/${jid||current}/clips/${n}/rate`,{method:'POST',body:JSON.stringify({stars:k})});
     if(k&&r.n===r.min)toast(`${r.n} ratings: scoring now follows your taste`);else if(k&&!r.learning&&r.enabled)toast(`Rated. ${Math.max(0,r.min-r.n)} more and scoring starts learning your taste`)}catch(e){toast(e.message)}
   jid?loadBoard():refresh(true)}
+const fmtN=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?(n/1e3).toFixed(1).replace(/\.0$/,'')+'k':String(n);
 const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['youtube','instagram','tiktok','x'];
 function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)return'';
   const retry=jid?`publishOne(${c.n},'${jid}')`:`publishOne(${c.n})`;
   return `<div class="pubs">${k.map(x=>{const s=p[x];
     if(s.state==='done'){let extra='';
       if(x==='youtube'){const vid=((s.url||'').match(/shorts\/([\w-]+)/)||[])[1];const studio=vid?`https://studio.youtube.com/video/${vid}/analytics/tab-overview/period-default`:'https://studio.youtube.com';
-        if(c.stay!=null)extra=`<span class="${c.stay>=50?'done':'error'}" title="${c.stay<50?'Under 50%: rework the opening next time':'A keeper'}">Stayed ${Math.round(c.stay)}%</span>`;
+        if(c.yt&&c.yt.views!=null){const y=c.yt,cls=y.stars>=4?'good':y.stars&&y.stars<=2?'bad':'';
+          extra=`<span class="ytstat ${cls}" title="From YouTube analytics, ${y.age_days} days after posting${y.stars?`. The app learned from it as ${y.stars}★`:'. It gets judged once it is 2 days old'}">${fmtN(y.views)} views${y.avg_pct!=null?` · ${Math.round(y.avg_pct)}% watched`:''}${y.likes?` · ${fmtN(y.likes)} likes`:''}${y.stars?` · ${y.stars>=4?'worked':y.stars<=2?'flopped':'okay'}`:''}</span>`}
+        else if(c.stay!=null)extra=`<span class="${c.stay>=50?'done':'error'}" title="${c.stay<50?'Under 50%: rework the opening next time':'A keeper'}">Stayed ${Math.round(c.stay)}%</span>`;
         else if(Date.now()/1000-(s.at||0)>=3600)extra=`<span class="stayask">Stayed to watch <input type="number" min="0" max="100" class="stayin" id="stay-${jid||current}-${c.n}" placeholder="%"> <button onclick="saveStay('${jid||current}',${c.n})">Save</button> <a href="${studio}" target="_blank">Studio ↗</a></span>`;
         else extra=`<span class="queued" title="Check 'Stayed to watch' in YouTube Studio after an hour">Check stay rate at ${new Date(((s.at||0)+3600)*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span>`}
       return `<a class="done" href="${esc(s.url||'#')}" target="_blank" title="Open it">✓ On ${PN[x]} ↗</a>`+extra}
@@ -2413,7 +2424,7 @@ async function pubSend(jid,body){if(pubWhen){body.when=pubWhen;pubWhen=null}try{
 const PRIV={public:'Public',unlisted:'Unlisted',private:'Private',friends:'Friends only'};
 const PUBHELP={
   youtube:{id:'OAuth client ID',secret:'Client secret',privacy:['public','unlisted','private'],steps:[
-    'Open <a href="https://console.cloud.google.com/" target="_blank">console.cloud.google.com</a>, create a project and enable <b>YouTube Data API v3</b>.',
+    'Open <a href="https://console.cloud.google.com/" target="_blank">console.cloud.google.com</a>, create a project and enable <b>YouTube Data API v3</b> and <b>YouTube Analytics API</b> (so the app can learn from how your clips do).',
     'OAuth consent screen: choose External and add your own Google account as a test user.',
     'Credentials → Create credentials → OAuth client ID → type <b>Desktop app</b>. Paste the client ID and secret here and press Connect.',
     'Google keeps uploads from apps it hasn\'t audited private. Request the free YouTube API audit to post publicly.']},
@@ -2432,7 +2443,16 @@ const PUBHELP={
     'OAuth 2.0 on, type <b>Native App</b>, permissions <b>Read and write</b>, callback URI {R}.',
     'Paste the OAuth 2.0 client ID (and secret if X shows one) here and press Connect.',
     'Posting videos needs an X API plan that includes media uploads.']}};
-async function openPub(){$('#pubModal').classList.add('on');renderPub()}
+async function openPub(){$('#pubModal').classList.add('on');renderPub();loadAn()}
+function anText(a){const s=a.state||{};if(!a.connected)return 'Connect YouTube below, then the app checks how your clips do once a day.';
+  if(s.error)return '⚠ '+s.error;if(!s.last_run)return `First check today at ${a.settings.time}. Clips need to be 2 days old before they're judged.`;
+  return `Last checked ${new Date(s.last_run*1000).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})}: ${s.note||''}`}
+async function loadAn(){try{const a=await api('/api/analytics');$('#anOn').checked=a.settings.on;$('#anTime').value=a.settings.time;
+  $('#anState').textContent=anText(a);$('#anState').classList.toggle('err',!!(a.state||{}).error)}catch(e){}}
+async function saveAn(){try{await api('/api/settings',{method:'POST',body:JSON.stringify({yt_analytics:$('#anOn').checked,yt_analytics_time:$('#anTime').value||'10:00'})});loadAn()}catch(e){toast(e.message)}}
+async function runAn(b){b.disabled=true;b.textContent='Checking…';
+  try{const r=await api('/api/analytics/run',{method:'POST'});toast(r.state.note||'Checked')}catch(e){toast(e.message)}
+  b.disabled=false;b.textContent='Check now';loadAn();current&&refresh(true)}
 async function renderPub(){let p;try{p=await pubInfo()}catch(e){return toast(e.message)}
   $('#pubRedirect').textContent=p.redirect;
   $('#apOn').checked=!!p.auto.on;$('#apMin').value=p.auto.min_score;$('#apGap').value=p.auto.space_min??30;

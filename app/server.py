@@ -11,7 +11,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from config import (APP, ASSETS, DATA, UPLOADS, USER_FONTS, USER_SFX, FILLERS, FFMPEG, IS_WIN, load_settings, save_settings,
                     output_dir, run, slug)
-import ai, media, jobs, publish, taste, watch
+import ai, media, jobs, publish, taste, watch, analytics
 from render import WATERMARKS
 WATERMARKS.mkdir(parents=True, exist_ok=True)
 
@@ -164,7 +164,8 @@ def get_settings():
 def post_settings(body: dict = Body(...)):
     allowed = {"engine", "groq_api_key", "groq_llm_model", "groq_whisper_model", "ollama_model", "ollama_url", "output_dir",
                "cookies_browser", "local_whisper_model", "groq_extra_keys", "gemini_api_key", "gemini_model", "video_encoder",
-               "backup_ai", "backup_key", "backup_model", "learn_taste", "post_template", "post_tags", "yt_category", "default_style"}
+               "backup_ai", "backup_key", "backup_model", "learn_taste", "post_template", "post_tags", "yt_category", "default_style",
+               "yt_analytics", "yt_analytics_time"}
     patch = {k: v for k, v in body.items() if k in allowed}
     for k in ("groq_api_key", "gemini_api_key", "backup_key"):
         if str(patch.get(k, "")).startswith("••"):
@@ -642,6 +643,21 @@ def taste_info():
     return taste.summary()
 
 
+@app.get("/api/analytics")
+def analytics_info():
+    return {"settings": analytics.settings(), "state": analytics.state(), "connected": bool(publish.acct("youtube").get("access_token"))}
+
+
+@app.post("/api/analytics/run")
+def analytics_run():
+    if not publish.acct("youtube").get("access_token"):
+        raise HTTPException(400, "Connect YouTube in Publishing accounts first")
+    st = analytics.run()
+    if st.get("error"):
+        raise HTTPException(400, st["error"])
+    return {"state": st, "taste": taste.summary()}
+
+
 @app.post("/api/taste/reset")
 def taste_reset():
     taste.reset()
@@ -1044,6 +1060,7 @@ if __name__ == "__main__":
     if "--no-browser" not in sys.argv:
         threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     jobs.start_scheduler()
+    analytics.start()
     watch.start(jobs.create, lambda jid: bool(jobs.get(jid)) and jobs.get(jid).get("status") in ("running", "queued", "paused"))
     print(f"\n  Aru Clips is running at http://127.0.0.1:{port}\n  Keep this window open while you use the app.\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
