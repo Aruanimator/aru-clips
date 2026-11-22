@@ -2,7 +2,7 @@
 import json, math, os, re, shutil, sys, time, threading, traceback, pathlib, uuid, subprocess
 import numpy as np
 from config import output_dir, load_settings, slug, FFMPEG, popen, run, UPLOADS
-import ai, media, picker, render, signals, publish, taste, post as postmod
+import ai, media, picker, render, signals, publish, taste, post as postmod, niche as nichemod
 
 JOBS = {}
 _pipe_lock = threading.Lock()   # one download/transcribe pipeline at a time
@@ -302,6 +302,7 @@ def _pads(o):
 def run_job(j):
     j.set(status="queued", stage="Waiting for the previous project to finish…")
     o = j.get("opts") or {}
+    nichemod.start(j)  # studies viral Shorts in this niche while the video downloads
     if not _pipe_lock.acquire(blocking=False):
         # another project is working: download this one meanwhile, so it's ready when that one finishes
         if o.get("url") and not o.get("file") and not (j.get("steps") or {}).get("source") and not j.get("chunked") and not _go_chunked(j, o):
@@ -416,7 +417,7 @@ def _run_job(j):
     clips, eng = picker.pick_audience(tr, total, n_want * 3 if ok else n_want, float(o.get("min_len", 20)), float(o.get("max_len", 60)),
                                       mode, o.get("prompt", ""), chat, heat, loud, j.log,
                                       lambda f: j.set(progress=round(0.62 + 0.08 * f, 3)),
-                                      o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o))
+                                      o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o), niche=nichemod.text(j))
     if ok:
         clips = _prefer_split(clips, ok, n_want, float(o.get("min_len", 20)), j.log)
         clips = [picker.finish_sentence(c, tr["words"], tr["segments"], float(o.get("min_len", 20)), float(o.get("max_len", 60)), total)
@@ -613,7 +614,7 @@ def _run_chunked(j, o, mode):
         want = max(2, int(round(n_want * dur / total + 0.49)))
         clips, eng = picker.pick_audience(tr, dur, want * 3 if ok else want, mn, mx, mode, o.get("prompt", ""), chat or None,
                                           _slice_heat(heat, a, a + dur), loud, j.log, lambda f: None,
-                                          o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o))
+                                          o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o), niche=nichemod.text(j))
         if ok:
             clips = _prefer_split(clips, ok, want, mn, j.log)
             clips = [picker.finish_sentence(c, tr["words"], tr["segments"], mn, mx, dur) for c in clips]
@@ -734,6 +735,7 @@ def run_live(j):
     probe = media.probe_url(o["url"])
     m = re.search(r"(?:twitch\.tv|kick\.com)/([^/?#]+)", o["url"])
     j.set(streamer=probe.get("uploader") or (m.group(1) if m else j.get("streamer")))
+    nichemod.start(j, probe)  # studies viral Shorts about this streamer while the stream records
     j.set(status="running", title="LIVE · " + (probe.get("title") or o["url"]),
           live={"recording": True, "elapsed": int(st.get("elapsed", 0)), "parts": len(st.get("done", []))})
     j.stage("Connecting to the live stream…", 0.02)
@@ -968,7 +970,8 @@ def run_live(j):
             chat = [(t - w0, x) for t, x in list(chat_reader.msgs) if w0 - 5 <= t <= w0 + meta["duration"] + 30]
             clips, _ = picker.pick_audience(tr, meta["duration"], 1, min(mn, meta["duration"] * 0.6), min(mx, meta["duration"]),
                                             "live", o.get("prompt", ""), chat, None, media.loudness(wav), j.log, lambda f: None,
-                                            o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o))
+                                            o.get("content", "general"), o.get("game", "any"), 6.0, None, *_pads(o),
+                                            niche=nichemod.text(j, wait=0))
         wav.unlink(missing_ok=True)
         for q in ldir.glob(name + "_part_*.*"):
             q.unlink(missing_ok=True)
@@ -1066,7 +1069,8 @@ def run_live(j):
         with ai_lock:
             clips, _ = picker.pick_audience(tr, meta["duration"], per, min(mn, meta["duration"] * 0.5), min(mx, meta["duration"]),
                                             "live", o.get("prompt", ""), chat, None, loud, j.log, lambda f: None,
-                                            o.get("content", "general"), o.get("game", "any"), 6.0, base, *_pads(o))
+                                            o.get("content", "general"), o.get("game", "any"), 6.0, base, *_pads(o),
+                                            niche=nichemod.text(j, wait=0))
         w0 = first_seen.get(name)
         for c in clips:
             if w0 and any(min(b, w0 + c["end"]) - max(a, w0 + c["start"]) > 0.5 * (c["end"] - c["start"]) for a, b in spike_ranges):

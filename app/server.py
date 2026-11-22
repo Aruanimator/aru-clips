@@ -165,7 +165,7 @@ def post_settings(body: dict = Body(...)):
     allowed = {"engine", "groq_api_key", "groq_llm_model", "groq_whisper_model", "ollama_model", "ollama_url", "output_dir",
                "cookies_browser", "local_whisper_model", "groq_extra_keys", "gemini_api_key", "gemini_model", "video_encoder",
                "backup_ai", "backup_key", "backup_model", "learn_taste", "post_template", "post_tags", "yt_category", "default_style",
-               "yt_analytics", "yt_analytics_time"}
+               "yt_analytics", "yt_analytics_time", "niche_research"}
     patch = {k: v for k, v in body.items() if k in allowed}
     for k in ("groq_api_key", "gemini_api_key", "backup_key"):
         if str(patch.get(k, "")).startswith("••"):

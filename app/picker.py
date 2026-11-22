@@ -70,7 +70,7 @@ def _windows(segs, max_chars=6000):  # small enough for free-tier token-per-minu
     return out
 
 
-def _system(mode, lang, profile="general", game="any"):
+def _system(mode, lang, profile="general", game="any", niche=""):
     if mode in ("stream", "live"):
         focus = ("You cut gaming and IRL live streams into viral TikTok, Reels and Shorts clips. Hunt for the moments a viewer "
                  "would replay or send to a friend: big laughs, rage, screams, shocking reactions, clutch wins, fails, roasts, "
@@ -113,10 +113,10 @@ worked: "Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the od
 "Reality Check", "He's flying the burn!". Never give away the ending in the title.
 "caption" is a one-line hook for the description that teases the moment without spoiling it (one emoji at most).
 Answer with JSON only. Write titles, reasons and captions in the same
-language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + taste.prompt_text())
+language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + taste.prompt_text() + (niche or ""))
 
 
-def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", game="any"):
+def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", game="any", niche=""):
     first, last = window[0][0]["s"], window[-1][0]["e"]
     hints = [h for h in hype if first <= h <= last]
     text = "\n".join(l for _, l in window)
@@ -132,7 +132,7 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
     user += ('Return JSON: {"clips":[{"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why it stops the scroll","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
              '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
-    data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
+    data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game, niche)}, {"role": "user", "content": user}], log=log)
     out = []
     for c in data.get("clips", []) if isinstance(data, dict) else []:
         try:
@@ -366,7 +366,7 @@ def finish_sentence(c, words, segs, mn, mx, total, reach=None):
 
 
 def pick(tr, total, n, mn, mx, mode="video", prompt="", loud=None, hype=(), log=print, progress=lambda f: None,
-         profile="general", game="any", pre=0.0, post=0.0):
+         profile="general", game="any", pre=0.0, post=0.0, niche=""):
     words, segs, lang = tr["words"], tr["segments"], tr.get("language", "en")
     loud = loud if loud is not None else np.array([-30.0])
     wins = _windows(segs)
@@ -375,7 +375,7 @@ def pick(tr, total, n, mn, mx, mode="video", prompt="", loud=None, hype=(), log=
         for k, w in enumerate(wins):
             share = (w[-1][0]["e"] - w[0][0]["s"]) / max(1, total)
             want = max(2, math.ceil(n * 1.6 * share) + 1)
-            got, engine = _ask(w, min(want, n + 3), mn, mx, mode, lang, prompt, list(hype), log, profile, game)
+            got, engine = _ask(w, min(want, n + 3), mn, mx, mode, lang, prompt, list(hype), log, profile, game, niche)
             cands += got
             progress((k + 1) / len(wins))
     except ai.AIUnavailable:
@@ -446,7 +446,7 @@ def describe(text, lang="en", profile="general", game="any", log=print):
 
 
 # ---------------------------------------------------------------- audience-first picking
-def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game):
+def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game, niche=""):
     """batch: list of candidate dicts with id, lo, hi, lines, chat, why. Returns AI clips keyed by id."""
     blocks = []
     for c in batch:
@@ -467,7 +467,7 @@ def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game):
     user += ('Return JSON: {"clips":[{"id":1,"skip":false,"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
              '"reason":"one sentence naming the hook and why the audience reacted","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
              '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
-    data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game)}, {"role": "user", "content": user}], log=log)
+    data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game, niche)}, {"role": "user", "content": user}], log=log)
     out = {}
     for c in data.get("clips", []) if isinstance(data, dict) else []:
         try:
@@ -498,20 +498,20 @@ def soft_snap(c, segs, mn, mx, total):
 
 
 def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat=None, loud=None, log=print,
-                  progress=lambda f: None, profile="general", game="any", lag=6.0, baseline=None, pre=0.0, post=0.0):
+                  progress=lambda f: None, profile="general", game="any", lag=6.0, baseline=None, pre=0.0, post=0.0, niche=""):
     """Finds clips where the audience reacted (chat, most replayed, loudness) and lets the AI frame and judge them.
     Falls back to reading the transcript alone when there are no audience signals."""
     words, segs, lang = tr["words"], tr["segments"], tr.get("language", "en")
     if not chat and not heat:
         hype = hype_moments(loud if loud is not None else np.array([-30.0]), None, words) if mode in ("stream", "live") else []
         hype = sorted(set(hype) | {int(t) for t, _ in stakes_moments(segs)})
-        return pick(tr, total, n, mn, mx, mode, prompt, loud, hype, log, progress, profile, game, pre, post)
+        return pick(tr, total, n, mn, mx, mode, prompt, loud, hype, log, progress, profile, game, pre, post, niche)
     score, parts = signals.timeline(total, chat, heat, loud, lag, profile, baseline)
     pk = signals.peaks(score, max(n * 2, n + 4), max(mn, 20))
     src = [x for x in ("chat" if chat else "", "most-replayed graph" if heat else "") if x]
     log(f"Found {len(pk)} audience peaks from {' and '.join(src)}")
     if not pk:
-        return pick(tr, total, n, mn, mx, mode, prompt, loud, [], log, progress, profile, game, pre, post)
+        return pick(tr, total, n, mn, mx, mode, prompt, loud, [], log, progress, profile, game, pre, post, niche)
     smax = max(s for _, s in pk)
     extra = [(t, h) for t, h in stakes_moments(segs) if all(abs(t - p) > max(mn, 20) for p, _ in pk)]
     extra = sorted(extra, key=lambda x: -x[1])[:max(2, n // 2)]
@@ -528,7 +528,7 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
     try:
         B = 3  # moments per request: keeps each request under the free-tier token limits
         for b in range(0, len(cands), B):
-            res, engine = _judge(cands[b:b + B], mn, mx, mode, lang, prompt, log, profile, game)
+            res, engine = _judge(cands[b:b + B], mn, mx, mode, lang, prompt, log, profile, game, niche)
             for c in cands[b:b + B]:
                 r = res.get(c["id"], "missing")
                 if r is None:
@@ -571,7 +571,7 @@ def pick_audience(tr, total, n, mn, mx, mode="video", prompt="", chat=None, heat
         if len(out) >= n:
             break
     if len(out) < n and segs:  # top up from the transcript if the audience flagged too few moments
-        extra, _ = pick(tr, total, n, mn, mx, mode, prompt, loud, [], log, lambda f: None, profile, game)
+        extra, _ = pick(tr, total, n, mn, mx, mode, prompt, loud, [], log, lambda f: None, profile, game, niche=niche)
         for c in extra:
             if len(out) >= n:
                 break

@@ -630,6 +630,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
 #ppWhen button{white-space:nowrap}
 .stayask{display:inline-flex;align-items:center;gap:5px;background:#263443}.stayin{width:52px;background:#101820;border:1px solid var(--line);border-radius:6px;color:var(--text);padding:1px 4px;font-size:11px}
 .ytan{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px}.ytan .hint{flex-basis:100%;margin:0}.ytan .hint.err{color:#ff8a7a}
+.niche{margin-top:10px}.niche summary{cursor:pointer;color:var(--accent);font-size:13px}.niche #jNicheBody{font-size:13px;color:var(--text);padding:8px 2px}.niche ul{margin:4px 0 10px 18px;color:var(--mute)}.niche a{color:var(--text)}.niche b{display:block;margin-top:6px}
 .ytstat{color:var(--mute)}.ytstat.good{color:var(--accent)}.ytstat.bad{color:#ff8a7a}
 .stayask button{font-size:11px;color:var(--accent)}.stayask a{color:var(--mute);text-decoration:none}
 .posttpl{margin-top:12px;font-size:13px}.posttpl summary{cursor:pointer;color:var(--mute)}.posttpl .field{margin-top:10px}
@@ -945,6 +946,7 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
       <button class="btn pri" id="stopBtn" style="display:none" onclick="stopLive()">Stop and finish</button>
       <div class="prog"><i id="jBar" style="width:0"></i></div>
       <div class="err" id="jErr" style="display:none"></div>
+      <details class="niche" id="jNiche" style="display:none"><summary></summary><div id="jNicheBody"></div></details>
       <details><summary>Activity log</summary><pre id="jLog"></pre></details>
     </div>
     <div class="bulkbar" id="bulkBar" style="display:none">
@@ -1099,6 +1101,8 @@ code{background:#101820;padding:1px 6px;border-radius:6px;font-size:12px}
     <div class="f field"><label>Learning from your ratings</label>
       <label class="toggle"><input type="checkbox" id="sLearn" checked><span></span>Use my star ratings to score new clips my way</label>
       <div class="hint" id="tasteInfo"></div>
+      <label class="toggle" style="margin-top:10px"><input type="checkbox" id="sNiche" checked><span></span>Study viral Shorts in the niche while a video downloads</label>
+      <div class="hint">Finds the most-viewed Shorts about the same streamer and game, reads how they open, and picks and titles clips like the winners.</div>
     </div>
     <div class="f field"><label>Save clips to</label><input class="inp" id="sOut"></div>
     <div class="f field"><label>Help and backup</label>
@@ -1373,7 +1377,7 @@ async function refresh(force){
   $('#stopBtn').style.display=rec?'':'none';if(rec)$('#stopBtn').disabled=false;
   $('#jBar').style.width=(j.progress*100)+'%';
   $('#jErr').style.display=j.error?'':'none';$('#jErr').textContent=j.error||'';
-  $('#jLog').textContent=j.logs.join('\n');
+  $('#jLog').textContent=j.logs.join('\n');nicheView(j.niche);
   const nPend=j.clips.filter(c=>c.pending).length,nDone=j.clips.filter(c=>c.file&&!c.pending).length,ex=j.export||{};
   $('#approveAll').style.display=nPend>1?'':'none';
   const eb=$('#exportBtn');eb.style.display=nDone?'':'none';
@@ -1517,7 +1521,7 @@ async function openSettings(){
   $('#sWhisper').value=s.groq_whisper_model;$('#sOllama').value=s.ollama_model;$('#sOllamaUrl').value=s.ollama_url;$('#sOut').value=s.output_dir;$('#sCookies').value=s.cookies_browser||'';$('#sLocalW').value=s.local_whisper_model||'small';
   $('#sKeys').value=s.groq_extra_keys||'';$('#sGem').value=s.gemini_api_key||'';$('#sEnc').value=s.video_encoder||'auto';
   $('#sBk').value=s.backup_ai||'';$('#sBkKey').value=s.backup_key||'';$('#sBkModel').value=s.backup_model||'';bkHint();
-  $('#sLearn').checked=s.learn_taste!==false;tasteInfo();
+  $('#sLearn').checked=s.learn_taste!==false;$('#sNiche').checked=s.niche_research!==false;tasteInfo();
   $('#settings').classList.add('on');
 }
 const BK={gemini:['Google Gemini','https://aistudio.google.com/apikey'],openrouter:['OpenRouter','https://openrouter.ai/keys'],cerebras:['Cerebras','https://cloud.cerebras.ai']};
@@ -1530,7 +1534,7 @@ async function saveSettings(){
     groq_llm_model:$('#sLlm').value,groq_whisper_model:$('#sWhisper').value,ollama_model:$('#sOllama').value.trim(),
     ollama_url:$('#sOllamaUrl').value.trim(),output_dir:$('#sOut').value.trim(),cookies_browser:$('#sCookies').value,local_whisper_model:$('#sLocalW').value,
     groq_extra_keys:$('#sKeys').value.trim(),gemini_api_key:$('#sGem').value.trim(),video_encoder:$('#sEnc').value,
-    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked})});
+    backup_ai:$('#sBk').value,backup_key:$('#sBkKey').value.trim(),backup_model:$('#sBkModel').value.trim(),learn_taste:$('#sLearn').checked,niche_research:$('#sNiche').checked})});
     closeSettings();toast('Settings saved');loadStatus();loadHistory()}catch(e){toast(e.message)}
 }
 document.querySelectorAll('.modal').forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove('on')});
@@ -2353,6 +2357,13 @@ function starsHtml(c,jid){const s=c.stars||0,j=jid?`,'${jid}'`:'';
 async function rateClip(n,k,jid){try{const r=await api(`/api/jobs/${jid||current}/clips/${n}/rate`,{method:'POST',body:JSON.stringify({stars:k})});
     if(k&&r.n===r.min)toast(`${r.n} ratings: scoring now follows your taste`);else if(k&&!r.learning&&r.enabled)toast(`Rated. ${Math.max(0,r.min-r.n)} more and scoring starts learning your taste`)}catch(e){toast(e.message)}
   jid?loadBoard():refresh(true)}
+function nicheView(nc){const el=$('#jNiche');if(!nc||!nc.n){el.style.display='none';return}el.style.display='';
+  el.querySelector('summary').textContent=`What's going viral here · studied ${nc.n} top Shorts for "${nc.queries[0]}"`;
+  const b=nc.brief||{},li=(t,a)=>a&&a.length?`<b>${t}</b><ul>${a.map(x=>`<li>${esc(String(x))}</li>`).join('')}</ul>`:'';
+  const html=(b.summary?`<p>${esc(b.summary)}</p>`:'')+li('Moments that win',b.moments)+li('Title patterns',b.titles)+li('How winners open',b.hooks)
+    +(b.length?`<b>Length</b><p>${esc(b.length)}</p>`:'')+li('Avoid',b.avoid)
+    +`<b>Top Shorts</b><ul>${nc.top.map(r=>`<li><a href="https://youtube.com/shorts/${esc(r.id)}" target="_blank">${esc(r.title)}</a> · ${fmtN(r.views)} views</li>`).join('')}</ul>`;
+  if($('#jNicheBody').innerHTML!==html)$('#jNicheBody').innerHTML=html}
 const fmtN=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?(n/1e3).toFixed(1).replace(/\.0$/,'')+'k':String(n);
 const PN={youtube:'YouTube',instagram:'Instagram',tiktok:'TikTok',x:'X'},PL=['youtube','instagram','tiktok','x'];
 function pubsHtml(c,jid){const p=c.published||{},k=Object.keys(p);if(!k.length)return'';

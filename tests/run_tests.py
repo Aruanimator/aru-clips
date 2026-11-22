@@ -279,10 +279,42 @@ class Analytics(unittest.TestCase):
             jobs.JOBS.clear(); jobs.JOBS.update(old[0]); analytics.requests.get = old[1]; jobs.load_all = old[2]; jobs._words_for = old[3]
 
 
+class Niche(unittest.TestCase):
+    def test_research_feeds_the_picker(self):
+        import niche
+        rows = [{"id": f"v{i:010d}", "title": f"xQc LOSES IT {i}", "channel": "Clips", "views": 1000 * (40 - i), "duration": 30 + i} for i in range(12)]
+        rows.append({"id": "long0000000", "title": "2 hour stream", "channel": "x", "views": 10 ** 7, "duration": 7200})
+        old = (niche._search_ytdlp, niche._search_api, niche.opening_words, ai.chat_json)
+        try:
+            niche._search_ytdlp = lambda q, log: rows
+            niche._search_api = lambda q, log: (_ for _ in ()).throw(RuntimeError("no"))
+            niche.opening_words = lambda vid, secs=7.0: "NO WAY he just did that"
+            ai.chat_json = lambda m, log=None: ({"summary": "Chases and fails win.", "moments": ["police chases"], "titles": ["CAPS verb + stakes"],
+                                                 "hooks": ["starts mid-scream"], "length": "20-35s", "avoid": ["slow intros"]}, "fake")
+
+            class FJ:
+                id = "nj1"
+                def __init__(self): self.data, self.lock, self.logs = {"opts": {"game": "gta6"}, "streamer": "xQc", "title": "t"}, threading.Lock(), []
+                def get(self, k, d=None): return self.data.get(k, d)
+                def save(self): pass
+                def log(self, m): self.logs.append(m)
+            fj = FJ()
+            niche.start(fj)
+            txt = niche.text(fj, wait=20)
+            self.assertIn("Chases and fails win.", txt)
+            self.assertIn("xQc LOSES IT 0", txt)
+            self.assertNotIn("2 hour stream", txt)
+            self.assertEqual(fj.data["niche"]["queries"][0], "xQc GTA 6")
+            self.assertIn("NO WAY", json.dumps(json.loads((niche._dir() / (niche._key(fj.data["niche"]["queries"]) + ".json")).read_text())))
+            self.assertIn("Chases and fails", picker._system("stream", "en", "gaming", "gta6", txt))
+        finally:
+            niche._search_ytdlp, niche._search_api, niche.opening_words, ai.chat_json = old
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     suite = unittest.TestSuite()
-    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics):
+    for case in (Security, PostText, VideoProject, LongVideo, Live, Analytics, Niche):
         if not only or case.__name__ in only:
             suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(case))
     r = unittest.TextTestRunner(verbosity=2).run(suite)
