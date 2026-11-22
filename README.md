@@ -26,6 +26,7 @@ If setup stops, run Install.bat again; it continues where it left off. Details a
 ## What it does
 
 - **Sources:** YouTube, Twitch, Kick, TikTok, Instagram, Facebook, X and most other sites (via yt-dlp), or drop a file.
+- **Only the parts it needs:** for YouTube and Twitch links it downloads the sound and a small 360p preview first, picks the moments, then downloads only those moments in full quality (with 20 seconds of room on each side for editing). A 6-hour stream takes about 2 GB instead of about 14 GB. You can still watch and mark moments yourself; a marked moment is downloaded in a few seconds. Turn it off in Settings → Downloads.
 - **Past stream:** hunts for laughs, shouts and hype using audio loudness, reaction words and, on YouTube, the chat replay.
 - **Live now:** records the stream, finds clips every few minutes, and lets you approve each one before it renders.
 - **Layouts:** face tracking, center crop, blur fit, 2-frame split, podcast split (two speakers), gameplay split, face bubble, multicam cuts.
@@ -80,6 +81,12 @@ Build the Windows exe (from Linux or macOS with Go 1.22+): `go install github.co
 ### Tests
 
 Run `python tests/run_tests.py` before every push (needs ffmpeg and the packages in `requirements.txt`). It builds its own test videos and fakes the AI, transcription and uploads, then checks: the local-server safety checks, post text, a video project with pause, resume, a marked clip, ratings, spaced and scheduled publishing, start over and delete, a long video clipped hour by hour, a live stream with the player feed, a marked clip, pause and resume, the daily YouTube analytics check, niche research and the picture check.
+
+## License
+
+Aru Clips is © 2026 Asiful Islam ([aru_animator](https://www.instagram.com/aru_animator/)). It is source-available, not open source: you can use the app and read the code, but copying or adapting the code needs permission. See [LICENSE](LICENSE).
+
+Like the app? [Follow on Instagram](https://www.instagram.com/aru_animator/) or [connect on LinkedIn](https://www.linkedin.com/in/aruanimator/).
 
 ## Credits
 

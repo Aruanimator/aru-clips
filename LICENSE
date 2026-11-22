@@ -1,0 +1,27 @@
+Aru Clips
+Copyright (c) 2026 Asiful Islam (aru_animator). All rights reserved.
+Instagram: https://www.instagram.com/aru_animator/
+LinkedIn: https://www.linkedin.com/in/aruanimator/
+
+This software and its source code are source-available, not open source.
+
+You may:
+  - download and use the released app (download/AruClips.exe) for your own clipping, including paid work;
+  - read the source code to see how it works.
+
+You may not, without written permission from the copyright holder:
+  - copy, modify, translate or port the source code, in whole or in part;
+  - create derivative works, including works "inspired by" or "based on" this code, whether written by hand
+    or generated with AI tools that were given this code as input or reference;
+  - redistribute, sell, sublicense or publish the code or a modified version of the app;
+  - remove or change the copyright notices, the ORIGIN credit in app/config.py, or the credits the app
+    embeds in its output.
+
+Third-party parts keep their own licenses: some ideas and code in live clipping, chat filtering, loudness and
+caption masking were adapted from gtavi-claudecode by Bodila51 (MIT license), and those portions remain under
+the MIT license. Bundled tools (Python packages, ffmpeg, yt-dlp, fonts) are under their own licenses.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+For permission, contact the author on Instagram or LinkedIn above.
