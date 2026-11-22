@@ -1089,21 +1089,21 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                     rows.append(cur); cur = []
                 cur.append(j)
             rows.append(cur)
-            # a line that would run off the sides is split here, never wrapped by the subtitle engine:
-            # an auto-wrapped line breaks the gradient bands, the boxes and the line spacing
+            # a line too wide for the screen: split it only if your "lines at a time" allows another line, otherwise
+            # shrink the text to fit. Never wrapped by the subtitle engine (that breaks the gradient, boxes and spacing).
             max_w = W - 2 * ml
-            cw = fs * (0.7 if s["upper"] else 0.6)
-            ww_ = lambda j: len(words[j]) * cw
-            fit = []
-            for row in rows:
-                cur, wsum = [], 0.0
-                for j in row:
-                    add = ww_(j) + (fs * 0.3 + wsp if cur else 0)
-                    if cur and wsum + add > max_w:
-                        fit.append(cur); cur, wsum = [], 0.0; add = ww_(j)
-                    cur.append(j); wsum += add
-                fit.append(cur)
-            rows = fit
+            allowed = max(len(rows), int(lk.get("lines") or 1))
+            rw = lambda row, f: text_width(font, " ".join(words[q] for q in row), f) + wsp * (len(row) - 1)
+            while len(rows) < allowed:
+                wide = max(range(len(rows)), key=lambda q: rw(rows[q], fs))
+                row = rows[wide]
+                if rw(row, fs) <= max_w or len(row) < 2:
+                    break
+                cut = min(range(1, len(row)), key=lambda q: abs(rw(row[:q], fs) - rw(row[q:], fs)))
+                rows[wide:wide + 1] = [row[:cut], row[cut:]]
+            widest = max(rw(row, fs) for row in rows)
+            gfs = fs * max(0.55, min(1.0, max_w / widest)) if widest > 0 else fs
+            fz = f"\\fs{gfs:.0f}" if gfs < fs - 0.5 else ""  # re-applied after every \\r, which resets to the style's size
             y_mid = H * cap_pos
             for k, w in enumerate(g):
                 a = g[0]["s"] if k == 0 else w["s"]
@@ -1113,8 +1113,8 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                 pop = "\\fscx92\\fscy92\\t(0,70,\\fscx100\\fscy100)" if k == 0 else ""
                 anim = "\\t(0,90,\\fscx122\\fscy122)\\t(90,180,\\fscx112\\fscy112)" if bounce else ""
                 for ri, row in enumerate(rows):
-                    y = int(y_mid + (ri - (len(rows) - 1) / 2) * line_h)
-                    pos = f"\\q2\\pos({x0},{y})"
+                    y = int(y_mid + (ri - (len(rows) - 1) / 2) * line_h * gfs / fs)
+                    pos = f"\\q2\\pos({x0},{y}){fz}"
 
                     def text(active_tag, other_tag=""):
                         if not hl and not active_tag.startswith("\\1a"):  # no highlight: the spoken word looks like the rest
@@ -1122,7 +1122,7 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                         out = []
                         for j in row:
                             ww = _esc(words[j])
-                            out.append(f"{{{active_tag}{anim}}}{ww}{{\\r{other_tag}}}" if j == k else (f"{{{other_tag}}}{ww}" if other_tag else ww))
+                            out.append(f"{{{active_tag}{anim}}}{ww}{{\\r{fz}{other_tag}}}" if j == k else (f"{{{other_tag}}}{ww}" if other_tag else ww))
                         return gap.join(out)
                     if fmt == "word_box":  # a coloured box behind the word being said, dark text on it
                         L.append(f"Dialogue: 0,{ts(a)},{ts(b)},CapBox,,0,0,0,,{{{pos}{pop}\\1a&HFF&\\3a&HFF&\\3c{ass_col(boxc)}}}"
@@ -1144,11 +1144,11 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
                     if fmt != "glow":
                         L.append(f"Dialogue: 0,{ts(a)},{ts(b)},{style_name},,0,0,0,,{{{pos}{pop}{base_tag}\\1a&HFF&}}"
                                  + text("\\1a&HFF&", base_tag + "\\1a&HFF&"))
-                    top, bands = y - fs * 0.4, 24  # the letters' cap height, so the full gradient shows
+                    top, bands = y - gfs * 0.4, 24  # the letters' cap height, so the full gradient shows
                     for bi in range(bands):
-                        y1, y2 = top + fs * 0.8 * bi / bands, top + fs * 0.8 * (bi + 1) / bands
+                        y1, y2 = top + gfs * 0.8 * bi / bands, top + gfs * 0.8 * (bi + 1) / bands
                         col = ass_col(_mix(ga, gb, bi / (bands - 1)))
-                        y_end = int(y + fs) if bi < bands - 1 else int(y + fs)  # each band runs to the bottom; the next one paints over it
+                        y_end = int(y + gfs)  # each band runs to the bottom; the next one paints over it
                         L.append(f"Dialogue: {1 + bi},{ts(a)},{ts(b)},Cap,,0,0,0,,{{{pos}{pop}\\bord0\\shad0\\c{col}"
                                  f"\\clip(0,{0 if bi == 0 else int(y1)},{W},{y_end})}}" + text(f"\\c{hc}" if hl else f"\\c{col}", f"\\bord0\\shad0\\c{col}"))
     if title_on and title:

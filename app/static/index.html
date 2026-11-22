@@ -2095,7 +2095,11 @@ function sdText(){
       const shd=fmtK==='shadow'?'0 .08em .14em rgba(0,0,0,.7)':fmtK==='glow'?`0 0 .3em ${glowC},0 0 .12em ${glowC}`:'';
       cap.style.textShadow=gradCss?'':shd;cap.style.filter=gradCss&&shd?shd.split(/,(?![^(]*\))/).map(x=>`drop-shadow(${x.trim()})`).join(' '):''}
     cap.style.fontFamily=fam;cap.style.fontSize=fsz+'cqw';cap.style.color=tx;cap.style.top=sd.capPos*100+'%';cap.style.left=(tp.cap_x??.5)*100+'%';
-    cap.style.paintOrder='stroke fill'}
+    cap.style.paintOrder='stroke fill';
+    // same as the renderer: a line too wide only goes onto another line if "lines at a time" allows it, else the text shrinks
+    if(g){const rowsN=(cap.innerHTML.match(/<br>/g)||[]).length+1,box=$('#sdOut').clientWidth*0.86;
+      cap.style.whiteSpace=rowsN<(sd.look.lines||1)?'normal':'nowrap';cap.style.maxWidth=rowsN<(sd.look.lines||1)?'86%':'none';
+      if(cap.style.whiteSpace==='nowrap'&&box&&cap.scrollWidth>box)cap.style.fontSize=(fsz*Math.max(.55,box/cap.scrollWidth))+'cqw'}}
   ttl.style.display=$('#sdTitleOn').checked&&$('#sdTitle').value.trim()?'':'none';
   const tsc=sd.look.title_scale||1,outl=sd.look.title_fmt==='outline';
   ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl,sd.look.font||'Montserrat Black').map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
