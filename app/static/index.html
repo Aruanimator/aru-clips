@@ -666,6 +666,9 @@ input[type=range]::-moz-range-thumb{width:16px!important;height:16px!important;b
 .follow{position:fixed;top:14px;right:22px;z-index:15;display:flex;align-items:center;gap:6px;padding:6px 8px 6px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:14px;color:var(--mute)}
 .follow span{margin-right:4px}.follow a{display:grid;place-items:center;width:34px;height:34px;border-radius:6px;color:var(--text)}.follow a:hover{background:#263443;color:var(--accent)}
 a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text-decoration:none;color:var(--text);font-weight:500}a.topbanner:hover{color:var(--accent)}
+.freebtn{width:100%;text-align:left;padding:7px 10px;margin:0 0 10px;border-radius:6px;font-size:12.5px;color:var(--text);background:#1E2A35;border:1px solid var(--line);cursor:pointer}.freebtn:hover{background:#263443}.freebtn span{color:var(--mute)}
+.warnbox{background:#3a1f1f;border:1px solid #6b2a2a;color:#ffb3a8;border-radius:6px;padding:10px 12px;font-size:13px;margin:10px 0}
+.btn.danger{background:#c0392b!important;color:#fff!important;border-color:transparent}.btn.danger:hover{background:#d64535!important}
 .support{width:100%;margin:2px 0 0;font-size:12px;color:var(--mute);background:none;border:0;padding:6px 10px;cursor:pointer;text-align:left;border-radius:6px}
 .support:hover{color:var(--text)}
 .suppop{position:fixed;left:16px;bottom:56px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
@@ -684,6 +687,7 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
   <div class="side-h sideh2">Projects <button class="clearbtn" onclick="clearProjects()" title="Delete every project that isn't running">Clear</button></div>
   <div id="history"></div>
   <div class="sidefoot">
+    <button class="freebtn" onclick="askFreeAll()">Free up space <span id="freeSz"></span></button>
     <div class="status" id="status"></div>
     <button class="setbtn" onclick="openSettings()">⚙︎ Settings</button>
     <button class="support" onclick="$('#supPop').classList.toggle('on')">Follow the creator</button>
@@ -1027,6 +1031,14 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
 </main>
 
 <!-- FREE UP SPACE -->
+<div class="modal" id="freeModal">
+  <div class="mbox" style="width:440px">
+    <h2>Free up space?</h2>
+    <p class="warnbox">This permanently deletes the downloaded videos, hour chunks, live recordings and chat replays of every project that isn't running<b id="freeAmt"></b>.</p>
+    <p class="hint">Your finished clips stay. But you won't be able to re-edit, re-render or clip new moments from those projects afterwards. This can't be undone.</p>
+    <div class="mrow"><button class="btn" onclick="$('#freeModal').classList.remove('on')">Cancel</button><button class="btn danger" id="freeGo" onclick="doFreeAll()">Delete and free up space</button></div>
+  </div>
+</div>
 <div class="modal" id="spaceModal">
   <div class="mbox" style="max-width:620px">
     <h2>Free up space</h2>
@@ -2617,6 +2629,13 @@ async function downloadBackup(){try{const r=await fetch('/api/backup');if(!r.ok)
   a.href=URL.createObjectURL(b);a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'aru-clips-backup.zip';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);toast('Backup saved to your downloads')}catch(e){toast(e.message)}}
 $('#rsIn').onchange=async e=>{const f=e.target.files[0];if(!f)return;if(!confirm('Restore this backup? It replaces your ratings, streamers and settings (keys stay as they are).'))return;
   const fd=new FormData();fd.append('file',f);try{const r=await fetch('/api/restore',{method:'POST',body:fd});const j=await r.json();if(!r.ok)throw new Error(j.detail||'Restore failed');toast('Backup restored');closeSettings()}catch(err){toast(err.message)}e.target.value=''};
+async function freeSize(){try{const r=await api('/api/storage');const gb=r.sources.reduce((a,x)=>a+x.gb,0);$('#freeSz').textContent=gb>=0.1?`· ${gb.toFixed(1)} GB`:'';return gb}catch(e){return null}}
+async function askFreeAll(){const gb=await freeSize();if(gb!==null&&gb<0.1)return toast('Nothing to free up right now');
+  $('#freeAmt').textContent=gb?` (about ${gb.toFixed(1)} GB)`:'';$('#freeGo').disabled=false;$('#freeModal').classList.add('on')}
+async function doFreeAll(){const b=$('#freeGo');b.disabled=true;b.textContent='Deleting…';
+  try{const r=await api('/api/free-all',{method:'POST'});toast(r.projects?`Freed ${r.freed_gb} GB from ${r.projects} project${r.projects>1?'s':''}`:'Nothing to free up')}catch(e){toast(e.message)}
+  b.textContent='Delete and free up space';$('#freeModal').classList.remove('on');freeSize();checkDisk&&checkDisk();current&&refresh(true)}
+setTimeout(freeSize,1500);setInterval(freeSize,120000);
 async function openSpace(){$('#spaceModal').classList.add('on');$('#spList').innerHTML='<div class="hint">Measuring…</div>';
   let st;try{st=await api('/api/storage')}catch(e){return toast(e.message)}
   $('#spHint').textContent=`${st.free_gb} GB free of ${st.total_gb} GB on the drive your clips are saved to.`;

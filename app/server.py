@@ -452,6 +452,10 @@ def _src_files(j):
         fs += [p for p in (j.dir / "chunks").glob("*.mp4")]
     fs += [p for p in j.dir.glob("audio*.wav")]
     fs += [p for p in j.dir.glob("sound.*") if p.is_file()] + [p for p in j.dir.glob("preview.*") if p.is_file()]
+    if (j.dir / "live").exists():  # live recordings (the clips themselves are in the project folder)
+        fs += [p for p in (j.dir / "live").rglob("*") if p.is_file()]
+    fs += [p for p in j.dir.glob("*chat*.json*") if p.is_file()]  # chat replays
+    fs += [p for p in j.dir.glob("*.part") if p.is_file()] + [p for p in j.dir.glob("*.ytdl") if p.is_file()]
     return fs
 
 
@@ -461,7 +465,7 @@ def storage():
     rows = []
     for x in jobs.listing():
         j = jobs.get(x["id"])
-        if not j or j.get("status") in ("running", "queued") or (j.get("opts") or {}).get("source_type") == "live":
+        if not j or j.get("status") in ("running", "queued"):
             continue
         size = sum(p.stat().st_size for p in _src_files(j))
         if size > 50 * 2**20:
@@ -469,6 +473,28 @@ def storage():
                          "clips": len([c for c in j.data.get("clips", []) if c.get("file")])})
     rows.sort(key=lambda r: -r["gb"])
     return {"free_gb": round(du.free / 2**30, 1), "total_gb": round(du.total / 2**30), "low": du.free < 15 * 2**30, "sources": rows}
+
+
+@app.post("/api/free-all")
+def free_all():
+    """Deletes downloaded videos, hour chunks, live recordings and chat replays of every project that isn't running.
+    Clips stay; those clips can't be re-edited or re-rendered afterwards."""
+    freed, n = 0, 0
+    for x in jobs.listing():
+        j = jobs.get(x["id"])
+        if not j or j.get("status") in ("running", "queued"):
+            continue
+        got = 0
+        for p in _src_files(j):
+            try:
+                got += p.stat().st_size; p.unlink()
+            except OSError:
+                pass
+        if got:
+            n += 1
+            j.set(source_dropped=True)
+        freed += got
+    return {"freed_gb": round(freed / 2**30, 2), "projects": n}
 
 
 @app.post("/api/jobs/{jid}/drop-source")
