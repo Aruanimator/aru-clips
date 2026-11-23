@@ -675,6 +675,9 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
 .clip .acts{flex-wrap:wrap}
 .support{width:100%;margin:2px 0 0;font-size:12px;color:var(--mute);background:none;border:0;padding:6px 10px;cursor:pointer;text-align:left;border-radius:6px}
 .support:hover{color:var(--text)}
+.bugbtn{display:block;width:100%;margin:6px 0 0;padding:10px 12px;border-radius:8px;background:#1E2A35;border:1px solid var(--line);color:var(--text);text-decoration:none}
+.bugbtn b{display:block;font-size:14px;font-weight:600}.bugbtn small{display:block;margin-top:3px;font-size:11.5px;color:var(--mute);line-height:1.35}
+.bugbtn:hover{background:#263443;border-color:rgba(194,245,76,.4)}
 .suppop{position:fixed;left:16px;bottom:84px;z-index:60;width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:none;box-shadow:0 12px 40px #0009}
 .suppop.on{display:block}.suppop p{margin:0 0 10px;font-size:12.5px;color:var(--mute)}
 .suppop a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;color:var(--text);text-decoration:none;font-size:13px}
@@ -694,8 +697,8 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
     <button class="freebtn" onclick="askFreeAll()">Free up space <span id="freeSz"></span></button>
     <div class="status" id="status"></div>
     <button class="setbtn" onclick="openSettings()">⚙︎ Settings</button>
-    <button class="support" onclick="$('#bugPop').classList.remove('on');$('#supPop').classList.toggle('on')">Follow the creator</button>
-    <button class="support" onclick="$('#supPop').classList.remove('on');$('#bugPop').classList.toggle('on')">Report a bug</button>
+    <a class="bugbtn" href="https://www.instagram.com/aru_animator/" target="_blank" rel="noopener" title="Opens @aru_animator on Instagram">
+      <b>Report a bug</b><small>Message me on Instagram for bugs or more feature suggestions</small></a>
   </div>
 </aside>
 <div class="topright">
@@ -707,15 +710,6 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
   <a href="https://www.linkedin.com/in/aruanimator/" target="_blank" rel="noopener" title="LinkedIn · aruanimator" aria-label="LinkedIn">
     <svg viewBox="0 0 24 24" width="21" height="21" fill="currentColor"><path d="M4.5 9h3v11h-3zM6 3.8a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM10 9h2.9v1.5h.04c.4-.76 1.4-1.6 2.9-1.6 3.1 0 3.7 2 3.7 4.7V20h-3v-5.6c0-1.3 0-3-1.85-3s-2.1 1.4-2.1 2.9V20H10z"/></svg></a>
 </div>
-</div>
-<div class="suppop" id="bugPop" role="dialog" aria-label="Report a bug">
-  <p>Message me on Instagram for bugs or more feature suggestions</p>
-  <a href="https://ig.me/m/aru_animator" target="_blank" rel="noopener">Message @aru_animator on Instagram ↗</a>
-</div>
-<div class="suppop" id="supPop" role="dialog" aria-label="Follow the creator">
-  <p>Clutched is free. If it helps you, a follow means a lot.</p>
-  <a href="https://www.instagram.com/aru_animator/" target="_blank" rel="noopener">Instagram · @aru_animator ↗</a>
-  <a href="https://www.linkedin.com/in/aruanimator/" target="_blank" rel="noopener">LinkedIn · aruanimator ↗</a>
 </div>
 
 <main>
@@ -1598,7 +1592,7 @@ async function loadStatus(){
     (h.ffmpeg?'':row('bad','ffmpeg missing'));
   $('#keyBanner').style.display=(h.groq_key||h.backup)?'none':'flex';
 }
-document.addEventListener('click',e=>{for(const id of ['supPop','bugPop']){const p=document.getElementById(id);if(p&&p.classList.contains('on')&&!p.contains(e.target)&&!e.target.closest('.support'))p.classList.remove('on')}});
+
 async function quitApp(){if(!confirm('Quit Clutched? Running projects stop and can be resumed next time you open it.'))return;try{await api('/api/quit',{method:'POST'})}catch(e){}document.body.innerHTML='<div style="margin:auto;color:#8A97A3;font:15px system-ui">Clutched is closed. Open it again from Applications or the Start menu.</div>'}
 async function openSettings(){
   const s=await api('/api/settings');settingsCache=s;
