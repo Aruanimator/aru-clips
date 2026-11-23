@@ -57,7 +57,8 @@ def has_groq(s=None):
     return bool(groq_keys(s)) and s.get("engine") != "local"
 
 
-_cool = {}  # key -> time it can be used again
+_cool = {}  # (key, model) -> time it can be used again. Groq limits each model on its own, so a chat
+# model on its daily limit must not block Whisper on the same key. (key, None) is the whole key (rejected).
 
 
 def _cooldown_for(r):
@@ -101,11 +102,13 @@ def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=
     if not keys:
         raise RateLimited("No Groq key")
     is_chat = "chat" in path
+    model = (json_body or data or {}).get("model")
     for _round in range(3):
         now = time.time()
-        ready = [k for k in keys if _cool.get(k, 0) <= now]
+        until = lambda k: max(_cool.get((k, model), 0), _cool.get((k, None), 0))
+        ready = [k for k in keys if until(k) <= now]
         if not ready:
-            soonest = min(_cool.get(k, 0) for k in keys) - now
+            soonest = min(until(k) for k in keys) - now
             if is_chat and _round > 0 and _limit_hit(log) and _has_backup():
                 raise RateLimited("Groq is on its limit")
             if soonest <= 75 and _round < 2:  # wait it out once rather than falling back straight away
@@ -127,12 +130,12 @@ def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=
             if r.status_code == 429:
                 _note_limits(r)
                 wait = _cooldown_for(r)
-                _cool[k] = time.time() + wait
+                _cool[(k, model)] = time.time() + wait
                 if log and len(keys) > 1:
                     log(f"Groq key …{k[-4:]} hit its limit, trying the next key")
                 continue
             if r.status_code == 401:
-                _cool[k] = time.time() + 3600
+                _cool[(k, None)] = time.time() + 3600
                 if log: log(f"Groq key …{k[-4:]} was rejected, skipping it")
                 continue
             if r.status_code == 413 or (r.status_code == 400 and "too large" in r.text.lower()):
