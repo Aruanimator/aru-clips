@@ -1,13 +1,13 @@
-<p align="center"><img src="app/assets/brand/logo.png" width="96" alt="Aru Clips"></p>
+<p align="center"><img src="app/assets/brand/logo.png" width="96" alt="Clutched"></p>
 
-<h1 align="center">Aru Clips</h1>
+<h1 align="center">Clutched</h1>
 
 <p align="center"><b>The AI clipper for streams.</b> Paste a link, get ready-to-post vertical clips with captions, a hook title and your watermark.<br>Free, for Windows and Mac.</p>
 
 <p align="center">
-  <a href="https://github.com/Aruanimator/aru-clips/raw/main/download/AruClips.exe"><b>Download for Windows</b></a> ·
-  <a href="https://github.com/Aruanimator/aru-clips/raw/main/download/Aru-Clips-mac.zip"><b>Download for Mac</b></a> ·
-  <a href="https://github.com/Aruanimator/aru-clips/raw/main/docs/Aru-Clips-Guide.pdf"><b>Guide (PDF)</b></a>
+  <a href="https://github.com/Aruanimator/aru-clips/raw/main/download/Clutched.exe"><b>Download for Windows</b></a> ·
+  <a href="https://github.com/Aruanimator/aru-clips/raw/main/download/Clutched-mac.zip"><b>Download for Mac</b></a> ·
+  <a href="https://github.com/Aruanimator/aru-clips/raw/main/docs/Clutched-Guide.pdf"><b>Guide (PDF)</b></a>
 </p>
 
 ---
@@ -25,13 +25,13 @@ Works with YouTube, Twitch, Kick, TikTok, Instagram, Facebook, X and most sites,
 
 ## Install
 
-**Windows 10 / 11:** download [AruClips.exe](https://github.com/Aruanimator/aru-clips/raw/main/download/AruClips.exe) and open it. If Windows says "Windows protected your PC", press **More info → Run anyway**. The first start sets everything up by itself in a few minutes.
+**Windows 10 / 11:** download [Clutched.exe](https://github.com/Aruanimator/aru-clips/raw/main/download/Clutched.exe) and open it. If Windows says "Windows protected your PC", press **More info → Run anyway**. The first start sets everything up by itself in a few minutes.
 
-**Mac (macOS 11+, Apple Silicon or Intel):** download [Aru-Clips-mac.zip](https://github.com/Aruanimator/aru-clips/raw/main/download/Aru-Clips-mac.zip), unzip it and drag **Aru Clips.app** into Applications. The first time, right-click it and choose **Open** (or System Settings → Privacy & Security → **Open Anyway**). If it says the app is damaged, run `xattr -cr "/Applications/Aru Clips.app"` in Terminal.
+**Mac (macOS 11+, Apple Silicon or Intel):** download [Clutched-mac.zip](https://github.com/Aruanimator/aru-clips/raw/main/download/Clutched-mac.zip), unzip it and drag **Clutched.app** into Applications. The first time, right-click it and choose **Open** (or System Settings → Privacy & Security → **Open Anyway**). If it says the app is damaged, run `xattr -cr "/Applications/Clutched.app"` in Terminal.
 
 Then add two free keys in **Settings** to make it fast: a [Groq key](https://console.groq.com/keys) and a [Gemini key](https://aistudio.google.com/apikey).
 
-Everything else, step by step with pictures, is in the **[guide](https://github.com/Aruanimator/aru-clips/raw/main/docs/Aru-Clips-Guide.pdf)**: first project, styles, the clip editor, live streams, publishing, the smart features, music claims and troubleshooting.
+Everything else, step by step with pictures, is in the **[guide](https://github.com/Aruanimator/aru-clips/raw/main/docs/Clutched-Guide.pdf)**: first project, styles, the clip editor, live streams, publishing, the smart features, music claims and troubleshooting.
 
 ## Help and support
 
@@ -43,6 +43,6 @@ Updates: when a new version is out, the app shows **Update available**. Download
 
 ## License
 
-Aru Clips is © 2026 Asiful Islam ([aru_animator](https://www.instagram.com/aru_animator/)). Free to use, including for paid clipping work. The source code is source-available, not open source: copying or adapting it needs permission. See [LICENSE](LICENSE). Clip other people's content only with their permission, and credit them.
+Clutched is © 2026 Asiful Islam ([aru_animator](https://www.instagram.com/aru_animator/)). Free to use, including for paid clipping work. The source code is source-available, not open source: copying or adapting it needs permission. See [LICENSE](LICENSE). Clip other people's content only with their permission, and credit them.
 
 Developers: see [docs/DEVELOPERS.md](docs/DEVELOPERS.md).

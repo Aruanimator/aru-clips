@@ -1,6 +1,6 @@
-# Aru Clips · for developers
+# Clutched · for developers
 
-Aru Clips is source-available, not open source: see [LICENSE](../LICENSE). This page is for the author and anyone
+Clutched is source-available, not open source: see [LICENSE](../LICENSE). This page is for the author and anyone
 given permission to work on it.
 
 ## Layout
@@ -28,7 +28,7 @@ app/              the app (Python)
 launcher/         the Windows exe and the Mac app: a Go program that installs a private Python, the packages and
                   ffmpeg on first run, then starts the app (main.go, platform_windows.go, platform_darwin.go)
 tests/run_tests.py   the test suite
-download/         what users download: AruClips.exe (Windows), Aru-Clips-mac.zip (Mac)
+download/         what users download: AruClips.exe (Windows), Clutched-mac.zip (Mac)
 docs/             the user guide (PDF) and these notes
 ```
 
@@ -43,7 +43,7 @@ Needs Go 1.22+ and `rsrc` (`go install github.com/akavel/rsrc@latest`), from Lin
 1. `sh launcher/build.sh` packs `app/` and `requirements.txt` into the launcher, stamps `app/VERSION` and writes
    `dist/AruClips.exe`.
 2. `MAKEFAT=/path/to/makefat sh launcher/build_mac.sh` builds the Mac launcher for Apple Silicon and Intel, joins them
-   with [makefat](https://github.com/randall77/makefat) and writes `dist/Aru-Clips-mac.zip` with `Aru Clips.app`.
+   with [makefat](https://github.com/randall77/makefat) and writes `dist/Clutched-mac.zip` with `Clutched.app`.
 3. Copy both into `download/`.
 
 The Mac app isn't signed or notarised (that needs an Apple Developer account), so users open it with right-click →

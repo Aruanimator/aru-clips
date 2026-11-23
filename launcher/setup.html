@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aru Clips · Setting up</title>
+<title>Clutched · Setting up</title>
 <link rel="icon" href="/logo.ico">
 <style>
   :root{--bg:#141D25;--card:#1E2A35;--line:#2B3A48;--txt:#E8EEF3;--mut:#8A97A3;--acc:#C2F54C;--acc2:#E3F9B5}
@@ -42,9 +42,9 @@
 </head>
 <body>
 <div class="card" id="card">
-  <div class="brand"><img src="/logo.ico" alt=""><b>Aru Clips</b></div>
+  <div class="brand"><img src="/logo.ico" alt=""><b>Clutched</b></div>
   <div class="eyebrow" id="eb">First-time setup</div>
-  <h1 id="h">Getting Aru Clips <em>ready</em></h1>
+  <h1 id="h">Getting Clutched <em>ready</em></h1>
   <p class="sub">This happens once and takes about 5 minutes. Everything stays in its own folder, and the app opens here by itself when it's done.</p>
   <div class="bar busy" id="bar"><i></i></div>
   <div class="detail" id="detail">Starting…</div>
@@ -63,8 +63,8 @@ async function tick() {
   const card = document.getElementById('card');
   if (s.quick) {
     card.classList.add('quick');
-    document.getElementById('eb').textContent = 'Aru Clips';
-    document.getElementById('h').innerHTML = 'Starting <em>Aru Clips</em>';
+    document.getElementById('eb').textContent = 'Clutched';
+    document.getElementById('h').innerHTML = 'Starting <em>Clutched</em>';
   }
   document.getElementById('steps').innerHTML = s.steps.map((t, i) =>
     `<li class="${i < s.step ? 'done' : i === s.step ? 'now' : ''}"><span class="d">${i < s.step ? '✓' : ''}</span>${t}</li>`).join('');

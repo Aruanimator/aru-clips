@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/Aru-Clips-mac.zip: "Aru Clips.app" for Apple Silicon and Intel Macs (run after build.sh made payload.zip).
+# Builds dist/Clutched-mac.zip: "Clutched.app" for Apple Silicon and Intel Macs (run after build.sh made payload.zip).
 # Needs makefat (github.com/randall77/makefat) to join the two builds into one app.
 set -e
 cd "$(dirname "$0")"
@@ -9,7 +9,7 @@ WORK=${TMPDIR:-/tmp}/aruc_mac
 mkdir -p "$OUT" "$WORK"
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$WORK/arm64" .
 GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$WORK/amd64" .
-APP="$WORK/Aru Clips.app"
+APP="$WORK/Clutched.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 ${MAKEFAT:-makefat} "$APP/Contents/MacOS/AruClips" "$WORK/arm64" "$WORK/amd64"
@@ -18,6 +18,6 @@ python3 -c "from PIL import Image; Image.open('icon.ico').convert('RGBA').resize
 cp "$WORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 VER=$(cat ../app/VERSION)
 sed "s/@VER@/$VER/" Info.plist.in > "$APP/Contents/Info.plist"
-rm -f "$OUT/Aru-Clips-mac.zip"
-( cd "$WORK" && zip -q -r -y "$OUT/Aru-Clips-mac.zip" "Aru Clips.app" )
-ls -la "$OUT/Aru-Clips-mac.zip"
+rm -f "$OUT/Clutched-mac.zip"
+( cd "$WORK" && zip -q -r -y "$OUT/Clutched-mac.zip" "Clutched.app" )
+ls -la "$OUT/Clutched-mac.zip"
