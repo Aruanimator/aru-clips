@@ -284,6 +284,26 @@ def cam_track(samples, rate, cam):
     return Track(_smooth(_fill(xs, cam["face"][0]), 0.01, 0.15), _smooth(_fill(ys, cam["face"][1]), 0.02, 0.15), 0.1, rate)
 
 
+def cam_from_frames(points, log=print):
+    """The facecam box from frames at [(file, seconds)], or None."""
+    det, samples, grays = Faces(), [], []
+    w = 1280
+    for src, t in points:
+        r = run([FFMPEG, "-v", "error"] + media.inopts(src) + ["-ss", f"{max(0.0, t):.2f}", "-i", str(src), "-frames:v", "1",
+                 "-vf", f"scale={w}:-2", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"])
+        if not r.stdout:
+            continue
+        h = len(r.stdout) // (w * 3)
+        img = np.frombuffer(r.stdout[: w * h * 3], np.uint8).reshape(h, w, 3)
+        samples.append(det.detect(img))
+        grays.append(cv2.cvtColor(cv2.resize(img, (960, int(960 * h / w))), cv2.COLOR_BGR2GRAY))
+    cam = find_cam(samples, grays)
+    if cam and not _overlay_on_moving(cam["box"], grays):
+        log("Found a still face in a box, but nothing moves around it, so it isn't a stream facecam")
+        cam = None
+    return {"box": [float(v) for v in cam["box"]], "face": [float(v) for v in cam["face"]]} if cam else None
+
+
 def detect_cam(src, start, dur, cache=None, n=30, log=print):
     """Finds the facecam by looking at ~30 frames spread over the 5 minutes around the clip (the cam stays put while
     the game keeps changing, which makes its box stand out). Streamers switch scenes and move their cam, so results are
@@ -305,24 +325,8 @@ def detect_cam(src, start, dur, cache=None, n=30, log=print):
     a, b = max(0.0, start - 150), min(total, start + dur + 150)
     if b - a < 1:
         return None
-    det, samples, grays = Faces(), [], []
-    w = 1280
-    for k in range(n):
-        t = a + (b - a) * (k + 0.5) / n
-        r = run([FFMPEG, "-v", "error"] + media.inopts(src) + ["-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1",
-                 "-vf", f"scale={w}:-2", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"])
-        if not r.stdout:
-            continue
-        h = len(r.stdout) // (w * 3)
-        img = np.frombuffer(r.stdout[: w * h * 3], np.uint8).reshape(h, w, 3)
-        samples.append(det.detect(img))
-        grays.append(cv2.cvtColor(cv2.resize(img, (960, int(960 * h / w))), cv2.COLOR_BGR2GRAY))
-    cam = find_cam(samples, grays)
-    if cam and not _overlay_on_moving(cam["box"], grays):
-        log("Found a still face in a box, but nothing moves around it, so it isn't a stream facecam")
-        cam = None
+    cam = cam_from_frames([(src, a + (b - a) * (k + 0.5) / n) for k in range(n)], log)
     if cam:
-        cam = {"box": [float(v) for v in cam["box"]], "face": [float(v) for v in cam["face"]]}
         for e in entries:  # the same cam found before, tighter: an overlay next to it crept into this box
             ob = e.get("box")
             if not ob or abs(e["face"][0] - cam["face"][0]) > 0.03 or abs(e["face"][1] - cam["face"][1]) > 0.04:

@@ -240,8 +240,9 @@ def _clip_opts(j, c):
             "remove_silence": c.get("remove_silence", o.get("remove_silence", False)),
             "look": {**(o.get("look") or {}), **(c.get("look") or {})}, "sfx": o.get("sfx") or {},
             "layout": {**(o.get("layout") or {}), **(c.get("layout") or {})}, "brand": o.get("brand") or {},
-            "framing": {"panes": c["framing_manual"]} if c.get("framing_manual") else None,
-            "cam_cache": str(j.dir / "cam.json"),
+            "framing": {"panes": c["framing_manual"]} if c.get("framing_manual") else {"cam": c["cam_auto"]} if c.get("cam_auto") else None,
+            # a clip cut from the live player has its own times, so it mustn't share the recording's cam cache
+            "cam_cache": str(j.dir / "live" / (c["seg"] + "_cam.json")) if str(c.get("seg", "")).startswith("manual_") else str(j.dir / "cam.json"),
             "stream": o.get("content") == "gaming" or o.get("source_type") in ("stream", "live"),
             "voice_only": bool(c.get("voice_only")), "voice_ranges": c.get("voice_ranges")}
 
@@ -1812,6 +1813,27 @@ def _hls_index(ldir):
     return out
 
 
+def _live_cam(j, ldir, wall):
+    """The facecam for a clip marked in the live player. The clip alone is too short to tell the cam's box from the
+    game, so this looks at frames over the few minutes around it, and falls back to the cam found for earlier clips."""
+    wa, wb = wall
+    idx = [x for x in _hls_index(ldir) if x[1] + x[2] > wa - 150 and x[1] < wb + 150]
+    cam = None
+    if idx:
+        step = max(1, len(idx) // 30)
+        try:
+            cam = render.cam_from_frames([(ldir / "hls" / x[0], x[2] / 2) for x in idx[::step][:30]], j.log)
+        except Exception as e:
+            j.log(f"Couldn't look for the facecam: {str(e)[:120]}")
+    if not cam:
+        for c in reversed(j.get("clips") or []):
+            fc = (c.get("framing_auto") or {}).get("cam") or c.get("cam_auto")
+            if fc and fc.get("box"):
+                j.log("Using the facecam found for an earlier clip")
+                return fc
+    return cam
+
+
 def _hls_cut(ldir, wa, wb, out):
     """Cuts wall-clock wa..wb out of the live preview pieces into an mp4 (picture and sound trimmed together)."""
     idx = _hls_index(ldir)
@@ -1906,6 +1928,10 @@ def _manual_run(j, c):
             (ldir / (name + ".json")).write_text(json.dumps(tr, ensure_ascii=False), "utf-8")
             c.update(seg=name, start=0.0, end=round(d, 2), duration=round(d, 1))
             words = tr.get("words", [])
+            if o.get("crop_mode") in ("split2", "pip", "gameplay", "face"):
+                cam = _live_cam(j, ldir, c["wall"])
+                if cam:
+                    c["cam_auto"] = cam
         else:
             # marked while the video was still downloading: wait for the download only (not the whole transcript)
             while not c.get("chunk") and not j.get("parts") and not ((j.get("steps") or {}).get("source") or (j.get("steps") or {}).get("sound")):
