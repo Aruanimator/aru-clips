@@ -68,16 +68,96 @@ def _cooldown_for(r):
     return wait
 
 
+REST_AFTER = 2     # Groq limits in a row (with every key on its limit) before the app stops waiting on Groq
+REST_SECS = 120    # how long the backup AI picks clips before Groq gets another try
+_rest = {"n": 0, "until": 0.0}
+_limits = {}       # (key ending, model) -> what Groq's last reply said about its limits
+LIMITS_FILE = CACHE / "groq_limits.json"
+
+
+def _reset_at(v):
+    """Groq writes resets like '7.66s', '2m59.56s' or '1h2m3s'."""
+    m = re.fullmatch(r"(?:([\d.]+)h)?(?:([\d.]+)m(?!s))?(?:([\d.]+)s)?(?:([\d.]+)ms)?", (v or "").strip())
+    if not m or not any(m.groups()):
+        return None
+    h, mi, se, ms = (float(x or 0) for x in m.groups())
+    return time.time() + h * 3600 + mi * 60 + se + ms / 1000
+
+
+def _note_limits(r, k, body):
+    model = (body or {}).get("model") or "?"
+    h = r.headers
+    if "x-ratelimit-limit-requests" not in h and "x-ratelimit-limit-tokens" not in h:
+        return
+    def num(name):
+        try:
+            return int(float(h.get(name)))
+        except (TypeError, ValueError):
+            return None
+    row = {"key": k[-4:], "model": model, "at": time.time(),
+           "req_limit": num("x-ratelimit-limit-requests"), "req_left": num("x-ratelimit-remaining-requests"),
+           "req_reset": _reset_at(h.get("x-ratelimit-reset-requests")),
+           "tok_limit": num("x-ratelimit-limit-tokens"), "tok_left": num("x-ratelimit-remaining-tokens"),
+           "tok_reset": _reset_at(h.get("x-ratelimit-reset-tokens"))}
+    if r.status_code == 429:
+        row["limited_until"] = time.time() + _cooldown_for(r)
+    _limits[(row["key"], model)] = row
+    try:
+        LIMITS_FILE.write_text(json.dumps(list(_limits.values())))
+    except OSError:
+        pass
+
+
+def groq_limits():
+    """What Groq last said about each key and model, for the limit bar in the sidebar."""
+    if not _limits and LIMITS_FILE.exists():
+        try:
+            for row in json.loads(LIMITS_FILE.read_text()):
+                _limits[(row["key"], row["model"])] = row
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    now = time.time()
+    keys = {k[-4:] for k in groq_keys()}
+    out = []
+    for row in sorted(_limits.values(), key=lambda r: -r["at"]):
+        if row["key"] not in keys:
+            continue
+        row = dict(row)
+        for f, left, lim in (("req_reset", "req_left", "req_limit"), ("tok_reset", "tok_left", "tok_limit")):
+            if row.get(f) and row[f] <= now and row.get(lim) is not None:
+                row[left] = row[lim]  # its window has reset since Groq last answered
+        out.append(row)
+    return {"rows": out, "resting": max(0, round(_rest["until"] - now)), "now": now}
+
+
+def groq_resting():
+    return time.time() < _rest["until"]
+
+
+def _limit_hit(log):
+    """Counts a limit with every key used up. The second one in a row sends clip picking to the backup AI for a while."""
+    _rest["n"] += 1
+    if _rest["n"] >= REST_AFTER:
+        _rest["until"] = time.time() + REST_SECS
+        _rest["n"] = REST_AFTER - 1  # after the break, one more limit starts the next break straight away
+        if log: log(f"Groq hit its limit {REST_AFTER} times in a row, so the backup AI picks clips for the next {REST_SECS // 60} minutes")
+        return True
+    return False
+
+
 def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=None):
     """POST to Groq, rotating through every saved key when one hits its free limit."""
     keys = groq_keys()
     if not keys:
         raise RateLimited("No Groq key")
+    is_chat = "chat" in path
     for _round in range(3):
         now = time.time()
         ready = [k for k in keys if _cool.get(k, 0) <= now]
         if not ready:
             soonest = min(_cool.get(k, 0) for k in keys) - now
+            if is_chat and _round > 0 and _limit_hit(log) and _has_backup():
+                raise RateLimited("Groq is on its limit")
             if soonest <= 75 and _round < 2:  # wait it out once rather than falling back straight away
                 if log: log(f"Groq rate limit (429): waiting {soonest:.0f}s, then trying again")
                 time.sleep(soonest + 0.5)
@@ -94,6 +174,7 @@ def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=
             finally:
                 if fh:
                     fh.close()
+            _note_limits(r, k, json_body or data)
             if r.status_code == 429:
                 wait = _cooldown_for(r)
                 _cool[k] = time.time() + wait
@@ -108,7 +189,11 @@ def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=
                 raise RateLimited(r.text[:200])
             if r.status_code >= 400:
                 raise EngineError("Groq", r.status_code, r.text)
+            if is_chat:
+                _rest["n"] = 0
             return r.json()
+    if is_chat:
+        _limit_hit(log)
     raise RateLimited("Groq limit")
 
 
@@ -445,10 +530,15 @@ def _ollama_chat(messages, s, json_mode=True):
     return r.json()["message"]["content"], s["ollama_model"]
 
 
+def _has_backup(s=None):
+    s = s or _settings()
+    return bool(backup_ai(s)) or (allow_local(s) and ollama_status(s)[0])
+
+
 def _engines(s):
     """The fallback chain: Groq, then the backup AI, then Ollama on this PC."""
     out = []
-    if has_groq(s):
+    if has_groq(s) and not (groq_resting() and _has_backup(s)):
         out.append(("Groq", lambda m, j, log, avoid=(): _groq_chat(m, s, j, log, avoid)))
     b = backup_ai(s)
     if b:

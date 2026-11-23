@@ -121,9 +121,10 @@ Score every clip with the same four-part rubric, judged the same way in every ba
 - "share": would people replay it, comment on it or send it to a friend?
 Anchors for each part: 22-25 one of the best moments you would find in any video, 15-21 clearly good, 8-14 average, 0-7 weak.
 Most moments are average: use the full range.
-Titles: name a character or the stakes and leave the outcome open, so viewers stay to see what happens. Titles like these
-worked: "Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire", "When the odds are impossible". Generic labels flopped:
-"Reality Check", "He's flying the burn!". Never give away the ending in the title.
+Titles: make viewers curious, or tell them what to expect, so they stay to see what happens. Name a character or the
+stakes and leave the outcome open. Titles like these worked: "Lucia ALMOST dies", "GTA6 Standoff: 'Don't Run' Backfire",
+"When the odds are impossible". Generic labels flopped: "Reality Check", "He's flying the burn!". Never give away the
+ending in the title. No emojis and no hashtags in the title: plain words only.
 "caption" is a one-line hook for the description that teases the moment without spoiling it (one emoji at most).
 Answer with JSON only. Write titles, reasons and captions in the same
 language as the transcript""" + (" (Bangla)" if lang == "bn" else "") + "." + profile_text(profile, game) + _cap(taste.prompt_text(), 2000) + _cap(niche or "", 900))
@@ -142,7 +143,7 @@ def _ask(window, n, mn, mx, mode, lang, prompt, hype, log, profile="general", ga
         user += "Hype moments (loud audio, chat spikes or laughter) at seconds: " + ", ".join(str(int(h)) for h in hints[:25]) + ". Weigh these strongly.\n"
     if prompt:
         user += f"Extra instructions from the creator: {prompt}\n"
-    user += ('Return JSON: {"clips":[{"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
+    user += ('Return JSON: {"clips":[{"start":seconds,"end":seconds,"title":"curious or what-to-expect title, max 8 words, no emojis or hashtags",'
              '"reason":"one sentence naming the hook and why it stops the scroll","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
              '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game, niche)}, {"role": "user", "content": user}], log=log)
@@ -177,9 +178,20 @@ def rubric_score(c):
         return 60, None
 
 
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\U0001F1E6-\U0001F1FF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0F\u200D\u20E3]")
+
+
+def clean_title(t):
+    """Titles go on the video, so no emojis or hashtags, whatever the AI wrote."""
+    t = _EMOJI.sub("", str(t or ""))
+    t = re.sub(r"(?:\s*(?<!\w)#\w+)+\s*$", "", t)  # hashtags tacked on the end go
+    t = re.sub(r"(?<!\w)#(\w)", r"\1", t)  # one used as a word stays a word: "#GTA6 Standoff" -> "GTA6 Standoff"
+    return re.sub(r"\s{2,}", " ", t).strip(" -|·,:")
+
+
 def _clip_from(c):
     sc, parts = rubric_score(c)
-    out = {"start": _sec(c["start"]), "end": _sec(c["end"]), "title": str(c.get("title", "")).strip(),
+    out = {"start": _sec(c["start"]), "end": _sec(c["end"]), "title": clean_title(c.get("title", "")),
            "reason": str(c.get("reason", "")).strip(), "score": sc, "caption": str(c.get("caption", "")).strip(),
            "hashtags": [h if str(h).startswith("#") else "#" + str(h) for h in (c.get("hashtags") or [])][:6]}
     if parts:
@@ -445,7 +457,7 @@ def describe(text, lang="en", profile="general", game="any", log=print):
     if not text.strip():
         return fallback
     user = (f"The creator marked this moment by hand. Transcript:\n{text[:3000]}\n\nWrite its title and post text, and score it "
-            'with the rubric. Return JSON: {"title":"scroll-stopping title, max 8 words","reason":"one sentence",'
+            'with the rubric. Return JSON: {"title":"curious or what-to-expect title, max 8 words, no emojis or hashtags","reason":"one sentence",'
             '"hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,"caption":"one-line hook that teases without spoiling"}')
     try:
         data, eng = ai.chat_json([{"role": "system", "content": _system("video", lang, profile, game)}, {"role": "user", "content": user}], log=log)
@@ -477,7 +489,7 @@ def _judge(batch, mn, mx, mode, lang, prompt, log, profile, game, niche=""):
             + "\n\n".join(blocks) + "\n\n")
     if prompt:
         user += f"Extra instructions from the creator: {prompt}\n"
-    user += ('Return JSON: {"clips":[{"id":1,"skip":false,"start":seconds,"end":seconds,"title":"scroll-stopping title, max 8 words",'
+    user += ('Return JSON: {"clips":[{"id":1,"skip":false,"start":seconds,"end":seconds,"title":"curious or what-to-expect title, max 8 words, no emojis or hashtags",'
              '"reason":"one sentence naming the hook and why the audience reacted","hook":0-25,"emotion":0-25,"payoff":0-25,"share":0-25,'
              '"caption":"one-line hook that teases without spoiling","trigger":seconds when the cause of the reaction happens}]}')
     data, eng = ai.chat_json([{"role": "system", "content": _system(mode, lang, profile, game, niche)}, {"role": "user", "content": user}], log=log)

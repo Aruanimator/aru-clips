@@ -235,7 +235,7 @@ def _guard(j, fn):
 def _clip_opts(j, c):
     o = j.get("opts", {})
     return {"crop_mode": c.get("crop_mode") or o.get("crop_mode"), "format": c.get("format") or o.get("format", "9:16"),
-            "caption_style": c.get("caption_style") or o.get("caption_style"), "caption_position": c.get("caption_position", o.get("caption_position", 0.7)),
+            "caption_style": c.get("caption_style") or o.get("caption_style"), "caption_position": c.get("caption_position", o.get("caption_position", 0.78)),
             "title": c.get("title", ""), "title_overlay": c.get("title_overlay", o.get("title_overlay", True)),
             "remove_silence": c.get("remove_silence", o.get("remove_silence", False)),
             "look": {**(o.get("look") or {}), **(c.get("look") or {})}, "sfx": o.get("sfx") or {},
@@ -636,7 +636,7 @@ def _run_job(j):
         return
     # 4. render
     base = {"crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
-            "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True), "format": o.get("format", "9:16"),
+            "caption_position": o.get("caption_position", 0.78), "title_overlay": o.get("title_overlay", True), "format": o.get("format", "9:16"),
             "remove_silence": bool(o.get("remove_silence"))}
     clips.sort(key=lambda c: -c["score"])
     for c in clips:
@@ -779,7 +779,7 @@ def _run_chunked(j, o, mode):
         return [(vp, ""), (a["final"], "")]
 
     base = {"crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
-            "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True),
+            "caption_position": o.get("caption_position", 0.78), "title_overlay": o.get("title_overlay", True),
             "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence"))}
     done_n = sum(1 for v in state.values() if v == "done")
     for k, a, b in plan:
@@ -1237,7 +1237,7 @@ def run_live(j):
 
     def clip_defaults(c):
         c.update(crop_mode=o.get("crop_mode", "face"), caption_style=o.get("caption_style", "bold"),
-                 caption_position=o.get("caption_position", 0.7), title_overlay=o.get("title_overlay", True),
+                 caption_position=o.get("caption_position", 0.78), title_overlay=o.get("title_overlay", True),
                  format=o.get("format", "9:16"), remove_silence=bool(o.get("remove_silence")))
 
     def add_clip(c, src_file):
@@ -1865,7 +1865,7 @@ def manual_clip(j, body):
     n = next_n(j)
     c = {"n": n, "manual": True, "picked_by": "you (marked in the player)", "reason": "You marked this moment.",
          "crop_mode": o.get("crop_mode", "face"), "caption_style": o.get("caption_style", "bold"),
-         "caption_position": o.get("caption_position", 0.7), "title_overlay": o.get("title_overlay", True),
+         "caption_position": o.get("caption_position", 0.78), "title_overlay": o.get("title_overlay", True),
          "format": o.get("format", "9:16"), "remove_silence": bool(o.get("remove_silence")),
          "title": "Your clip", "score": 0, "caption": "", "hashtags": [], "rendering": True, "start": 0, "end": 1}
     if live:

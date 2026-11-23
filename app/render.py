@@ -1188,7 +1188,7 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
         if tp:  # placed by dragging in the preview: the centre of the hook goes there
             cx_, cy_ = W * float(tp.get("x", 0.5)), H * float(tp.get("y", 0.13))
         else:
-            cx_, cy_ = W / 2, H * 0.11 + pad + block / 2
+            cx_, cy_ = W / 2, H * 0.5  # default: the middle of the frame, on the line between the two halves
         for i, row in enumerate(rows_):
             y_ = int(cy_ - block / 2 + lh * (i + 0.5))
             at = f"\\an5\\pos({int(cx_)},{y_}){fade}"
@@ -1528,7 +1528,7 @@ def render_clip(src, out_mp4, start, end, words, opts, lang="en", log=print):
             shutil.copy(f, tmp / "fonts" / f.name)
         wmi = {"on": bool(wm and wm_text), "pos": wm.pos if wm else "bl", "x": getattr(wm, "x", 0), "y": getattr(wm, "y", 0),
                "w": getattr(wm, "w", 0), "size": getattr(wm, "size", 80), "text": wm_text, "opacity": getattr(wm, "opacity", 0.92)}
-        build_ass(tmp / "clip.ass", W, H, dur, groups, style, look, float(opts.get("caption_position", 0.7)),
+        build_ass(tmp / "clip.ass", W, H, dur, groups, style, look, float(opts.get("caption_position", 0.78)),
                   opts.get("title", ""), opts.get("title_overlay", True), lang, wmi)
         has_sfx = build_sfx(tmp / "sfx.wav", dur, groups, opts.get("sfx"), opts.get("title_overlay", True))
 

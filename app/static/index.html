@@ -32,6 +32,15 @@ aside{width:244px;flex:none;background:var(--side);border-right:1px solid var(--
 .hist small{color:var(--mute);font-size:11.5px}
 .sidefoot{border-top:1px solid var(--line);padding-top:12px;margin-top:8px}
 .status{display:flex;flex-direction:column;gap:6px;padding:0 10px 10px;font-size:12px;color:var(--mute)}
+.glim{padding:0 10px 10px;font-size:11.5px;color:var(--mute);display:flex;flex-direction:column;gap:7px}
+.glim:empty{display:none}
+.glim .gm{display:flex;justify-content:space-between;gap:6px;color:var(--text);font-size:11.5px}
+.glim .gm small{color:var(--mute);font-size:11px;white-space:nowrap}
+.glim .gl{display:flex;justify-content:space-between;gap:6px;margin-top:3px}
+.glim .gbar{height:4px;border-radius:2px;background:#ffffff14;overflow:hidden;margin-top:2px}
+.glim .gbar i{display:block;height:100%;background:var(--good)}
+.glim .gbar i.mid{background:var(--warn)}.glim .gbar i.low{background:#ff453a}
+.glim .grest{color:var(--warn)}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:8px;background:#5A6876;vertical-align:1px}
 .dot.ok{background:var(--good)}.dot.bad{background:#ff453a}.dot.mid{background:var(--warn)}
 .setbtn{width:100%;text-align:left;padding:8px 10px;border-radius:9px;color:var(--mute);font-weight:500}
@@ -693,6 +702,7 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
   <div class="sidefoot">
     <button class="freebtn" onclick="askFreeAll()">Free up space <span id="freeSz"></span></button>
     <div class="status" id="status"></div>
+    <div class="glim" id="glim"></div>
     <button class="setbtn" onclick="openSettings()">⚙︎ Settings</button>
     <button class="support" onclick="$('#bugPop').classList.remove('on');$('#supPop').classList.toggle('on')">Follow the creator</button>
     <button class="support" onclick="$('#supPop').classList.remove('on');$('#bugPop').classList.toggle('on')">Report a bug</button>
@@ -816,8 +826,8 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
             </div>
           </div>
           <div class="field">
-            <label>Caption height <span class="rangeval" id="posV">70%</span></label>
-            <input type="range" id="pos" min="15" max="88" value="70" oninput="posV.textContent=this.value+'%';renderLook()">
+            <label>Caption height <span class="rangeval" id="posV">78%</span></label>
+            <input type="range" id="pos" min="15" max="88" value="78" oninput="posV.textContent=this.value+'%';renderLook()">
           </div>
           <div class="field" style="grid-column:1/-1">
             <label>Text format</label>
@@ -1558,7 +1568,7 @@ let editing=null;
 function oldEditClip(n){const c=clipBy(n);editing=n;
   $('#eTitle').value=c.title;$('#eStart').value=c.start.toFixed(2);$('#eEnd').value=c.end.toFixed(2);
   $('#eCrop').value=c.crop_mode;segSet($('#eSty'),c.caption_style);segSet($('#eFmt'),c.format||'9:16');
-  const p=Math.round((c.caption_position??0.7)*100);$('#ePos').value=p;$('#ePosV').textContent=p+'%';syncRange($('#ePos'));
+  const p=Math.round((c.caption_position??0.78)*100);$('#ePos').value=p;$('#ePosV').textContent=p+'%';syncRange($('#ePos'));
   $('#eTitleOv').checked=c.title_overlay??true;$('#eCutSil').checked=!!c.remove_silence;$('#editor').classList.add('on')}
 function nud(id,d){const i=$('#'+id);i.value=Math.max(0,(+i.value+d)).toFixed(2)}
 async function doRerender(){
@@ -1585,6 +1595,20 @@ async function loadHistory(){
 function markHist(){document.querySelectorAll('.hist').forEach(h=>h.classList.toggle('on',h.dataset.id===current))}
 
 // ---------- settings + health
+const fmtK=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'')+'K':String(n);
+const glIn=s=>s<=0?'now':s<60?Math.ceil(s)+'s':s<3600?Math.ceil(s/60)+'m':Math.floor(s/3600)+'h '+Math.ceil(s%3600/60)+'m';
+async function loadGroqLimits(){
+  const d=await api('/api/groq-limits').catch(()=>null);const box=$('#glim');if(!d||!box)return;
+  if(!d.rows.length){box.innerHTML='';return}
+  const keys=new Set(d.rows.map(r=>r.key));
+  const bar=(left,lim,label,reset)=>{if(left==null||!lim)return'';const f=Math.max(0,Math.min(1,left/lim));
+    return `<div class="gl"><span>${label}</span><small>${fmtK(left)} / ${fmtK(lim)} left${reset&&left<lim?' · resets in '+glIn(reset-d.now):''}</small></div>
+    <div class="gbar"><i class="${f<.15?'low':f<.4?'mid':''}" style="width:${(f*100).toFixed(1)}%"></i></div>`};
+  box.innerHTML=(d.resting?`<div class="grest">Groq is on its limit. The backup AI picks clips for ${glIn(d.resting)}.</div>`:'')+
+    d.rows.slice(0,4).map(r=>{const name=r.model.split('/').pop();const lim=r.limited_until&&r.limited_until>d.now;
+      return `<div><div class="gm"><span>Groq · ${esc(name)}</span><small>${keys.size>1?'key …'+esc(r.key):''}${lim?' · on limit':''}</small></div>
+      ${bar(r.req_left,r.req_limit,'Today',r.req_reset)}${/whisper/.test(name)?'':bar(r.tok_left,r.tok_limit,'This minute',r.tok_reset)}</div>`}).join('');
+}
 async function loadStatus(){
   const h=await api('/api/health').catch(()=>null);if(!h)return;
   const s=settingsCache;
@@ -1846,7 +1870,7 @@ function renderLook(){
   t.style.color=look.title_fmt==='outline'?(look.title_fg||'#fff'):(look.title_fg||'#101010');
   t.querySelector('span').style.webkitTextStroke=look.title_fmt==='outline'?'.12em '+(look.title_bg||'#000'):'';t.querySelector('span').style.paintOrder='stroke fill';
   t.style.fontSize=(70*scale*(look.title_scale||1)/W*100*assEm(look.font||'Montserrat Black'))+'cqw';syncSizeLabels();
-  const tp=look.text_pos?.title;t.style.left=((tp?.x??.5)*100)+'%';t.style.top=(tp?tp.y*100:11)+'%';t.style.transform=tp?'translate(-50%,-50%)':'translate(-50%,0)';
+  const tp=look.text_pos?.title;t.style.left=((tp?.x??.5)*100)+'%';t.style.top=(tp?tp.y*100:50)+'%';t.style.transform='translate(-50%,-50%)';
   $('#pvVig').style.opacity=look.effects.includes('vignette')?1:0;$('#pvGrain').style.opacity=look.effects.includes('grain')?.5:0;
   const bar=$('#pvBar');bar.style.opacity=look.effects.includes('progress')?1:0;bar.style.background=hi;
   drawLayoutPreview(W,H,hi);$('#mLay').textContent=layName(layout);
@@ -1886,7 +1910,7 @@ function textSize(k,d){
     const fs=$('#fs');if(fs){fs.value=v;$('#fsV').textContent=v+'%';if(typeof syncRange==='function')syncRange(fs)}}
   else{const v=Math.min(180,Math.max(50,Math.round((look.title_scale||1)*100)+d));look.title_scale=v/100}
   renderLook()}
-function resetTextPos(){delete look.text_pos;$('#pos').value=70;$('#posV').textContent='70%';syncRange($('#pos'));renderLook()}
+function resetTextPos(){delete look.text_pos;$('#pos').value=78;$('#posV').textContent='78%';syncRange($('#pos'));renderLook()}
 function dragText(el,onMove){
   el.addEventListener('pointerdown',e=>{
     e.preventDefault();e.stopPropagation();const stage=$('#stage');window.__textDrag=true;stage.style.transform='';
@@ -1972,7 +1996,7 @@ async function editClip(n){
     const c=info.clip,lk=info.look||{};
     sd={n,info,layout:(info.framing&&info.framing.layout)||c.crop_mode||'face',format:c.format||'9:16',split:(info.layout||{}).split||0.5,
       style:c.caption_style||'bold',look:JSON.parse(JSON.stringify(lk)),start:c.start,end:c.end,
-      capPos:c.caption_position??0.7,words:JSON.parse(JSON.stringify(info.words||[])),wordsEdited:!!info.edited_words,
+      capPos:c.caption_position??0.78,words:JSON.parse(JSON.stringify(info.words||[])),wordsEdited:!!info.edited_words,
       rects:{},manual:new Set(Object.keys(info.manual||{}))};
     sd.look.effects=sd.look.effects||[];
     for(const[p,r]of Object.entries(info.manual||{}))sd.rects[p]=r;
@@ -2124,7 +2148,7 @@ function sdApplyText(){
   sd.wordsEdited=true;sd.textDirty=false;sdGroups();sdLines();sdTextInfo();sdDraw();toast(`${lines.length} caption${lines.length===1?'':'s'} applied`)}
 async function sdResetWords(){const info=await api(`/api/jobs/${current}/clips/${sd.n}/edit?original=1`);
   sd.words=info.words||[];sd.wordsEdited=false;sd.resetWords=true;sdGroups();sdLines();sdDraw()}
-function sdResetPlace(){delete sd.look.text_pos;sd.capPos=0.7;sdDraw()}
+function sdResetPlace(){delete sd.look.text_pos;sd.capPos=0.78;sdDraw()}
 // ---------- result preview (drawn live from the source video)
 function sdDraw(){
   if(!sd)return;const c=$('#sdCanvas'),x=c.getContext('2d'),v=$('#sdVid'),[W,H]=FMT[sd.format],k=c.width/W;
@@ -2187,7 +2211,7 @@ function sdText(){
   ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl,sd.look.font||'Montserrat Black').map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
   ttl.style.fontFamily=fam;ttl.style.setProperty('--tbg',outl?'transparent':(sd.look.title_bg||'#fff'));ttl.style.color=outl?(sd.look.title_fg||'#fff'):(sd.look.title_fg||'#101010');
   ttl.querySelectorAll('span').forEach(e=>{e.style.webkitTextStroke=outl?'.12em '+(sd.look.title_bg||'#000'):'';e.style.paintOrder='stroke fill'});
-  ttl.style.fontSize=(70*scale*tsc/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:11)+'%';ttl.style.transform=tp.title?'translate(-50%,-50%)':'translate(-50%,0)';
+  ttl.style.fontSize=(70*scale*tsc/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:50)+'%';ttl.style.transform='translate(-50%,-50%)';
 }
 // the hook's lines, split the same way the renderer splits them
 let _hookCtx=null;
@@ -2287,6 +2311,7 @@ function initStudio(){
   restoreLook(s.default_style||s.look);initStudio();
   if(s.default_style)$('#styleNote').textContent='Using your default style.';
   loadStatus();loadHistory();setInterval(loadStatus,15000);
+  loadGroqLimits();setInterval(loadGroqLimits,10000);
   loadBadges();setInterval(loadBadges,30000);
   checkUpdate();setInterval(checkUpdate,6*3600e3);checkDisk();setInterval(checkDisk,10*60e3);
 })();

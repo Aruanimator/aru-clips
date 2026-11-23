@@ -223,6 +223,11 @@ def health():
             "encoder": render.pick_encoder()[1] if FFMPEG else "CPU"}
 
 
+@app.get("/api/groq-limits")
+def groq_limits():
+    return ai.groq_limits()
+
+
 @app.post("/api/backup/test")
 def backup_test(body: dict = Body(...)):
     """Sends one tiny request to the backup AI so Settings can show whether the key works."""
@@ -285,7 +290,7 @@ def create_job(body: dict = Body(...)):
                    "crop_mode": body.get("crop_mode", "face"),
                    "look": {"look": body.get("look") or {}, "format": body.get("format"), "sfx": body.get("sfx") or {},
                             "crop_mode": body.get("crop_mode"), "layout": body.get("layout") or {},
-                            "caption_position": body.get("caption_position", 0.7)}})
+                            "caption_position": body.get("caption_position", 0.78)}})
     return {"id": jobs.create(body)}
 
 
