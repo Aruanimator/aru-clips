@@ -452,6 +452,38 @@ def _align(j, part, a0, sr=4000):
     return round(float(lags[k]), 3)
 
 
+def _part_words(j, part, gwords, a0, b0):
+    """Transcribes a downloaded moment's own sound. Returns (its transcript, where it starts in the project's time),
+    either one None when it can't tell."""
+    import difflib
+    wav = part.with_suffix(".wav")
+    try:
+        media.extract_audio(part, wav)
+        d = media.ffprobe(wav)["duration"]
+        tr = ai.transcribe(wav, d, (j.get("opts") or {}).get("language", "auto"), lambda m: None)
+    except Exception as e:
+        j.log(f"Couldn't transcribe the downloaded moment on its own ({str(e)[:100]}), using the project's transcript")
+        return None, None
+    finally:
+        wav.unlink(missing_ok=True)
+    lw = tr.get("words") or []
+    if not lw:
+        return None, None
+    norm = lambda w: re.sub(r"[^\w]", "", str(w).lower())
+    gw = [w for w in gwords if a0 - 30 < w["s"] < b0 + 30]
+    start = None
+    if gw:
+        sm = difflib.SequenceMatcher(None, [norm(w["w"]) for w in gw], [norm(w["w"]) for w in lw], autojunk=False)
+        diffs = [gw[b.a + k]["s"] - lw[b.b + k]["s"] for b in sm.get_matching_blocks() for k in range(b.size)
+                 if len(norm(gw[b.a + k]["w"])) > 2]
+        if len(diffs) >= 5:
+            med = float(np.median(diffs))
+            close = [x for x in diffs if abs(x - med) < 0.6]
+            if len(close) >= 0.5 * len(diffs) and abs(med - a0) < 15:  # a cut lands a few seconds off at most
+                start = round(float(np.median(close)), 3)
+    return {"words": lw, "segments": tr.get("segments") or []}, start
+
+
 def _to_part(j, c):
     """Downloads the full-quality picture of one picked moment (with room for editing) and points the clip at it.
     If that keeps failing, the whole video is downloaded once and every clip uses it."""
@@ -483,18 +515,25 @@ def _to_part(j, c):
                 j.log(f"Couldn't download just this moment ({str(err)[:120]}), so the whole video is downloaded instead")
                 media.download(o["url"], j.dir, j.log, lambda f: None)
         return c
-    try:
-        lag = _align(j, out, a0)
-    except Exception:
-        lag = 0.0
-    if abs(lag) > 0.04:
-        j.log(f"Clip {c['n']}: the downloaded moment starts {abs(lag):.2f}s {'earlier' if lag < 0 else 'later'} than asked; captions moved to match")
-    a0 += lag
-    b0 += lag
     trf = j.dir / "transcript.json"
     tr = json.loads(trf.read_text("utf-8")) if trf.exists() else {"words": [], "segments": [], "language": j.get("lang", "en")}
+    # the moment's own sound is transcribed, so its captions come from the very file that plays: always in sync.
+    # Matching those words against the project's transcript says exactly where the moment starts.
+    own, start_at = _part_words(j, out, tr.get("words", []), a0, b0)
+    if start_at is None:
+        try:
+            lag = _align(j, out, a0)
+        except Exception:
+            lag = 0.0
+        start_at = a0 + lag
+    lag = start_at - a0
+    if abs(lag) > 0.04:
+        j.log(f"Clip {c['n']}: the downloaded moment starts {abs(lag):.2f}s {'earlier' if lag < 0 else 'later'} than asked; captions moved to match")
+    a0, b0 = start_at, b0 + lag
     cut = lambda xs: [dict(x, s=round(x["s"] - a0, 3), e=round(x["e"] - a0, 3)) for x in xs if x["e"] > a0 and x["s"] < b0]
-    (j.dir / "chunks" / (name + ".json")).write_text(json.dumps({"words": cut(tr.get("words", [])), "segments": cut(tr.get("segments", [])),
+    words = own["words"] if own else cut(tr.get("words", []))
+    segs = own["segments"] if own else cut(tr.get("segments", []))
+    (j.dir / "chunks" / (name + ".json")).write_text(json.dumps({"words": words, "segments": segs,
                                                                  "language": tr.get("language", "en")}, ensure_ascii=False), "utf-8")
     with j.lock:
         if c.get("words"):
