@@ -430,8 +430,8 @@ _upd = {"t": 0, "data": None}
 
 @app.get("/api/update")
 def update_check():
-    """Is a newer AruClips.exe on GitHub? Asked at most every 15 minutes."""
-    if _upd["data"] and time.time() - _upd["t"] < 15 * 60:
+    """Is a newer AruClips.exe on GitHub? Checked at most every 6 hours."""
+    if _upd["data"] and time.time() - _upd["t"] < 6 * 3600:
         return _upd["data"]
     cur, latest = _version(), ""
     try:
