@@ -115,6 +115,13 @@ def groq_post(path, json_body=None, data=None, file_path=None, timeout=120, log=
                 if log: log(f"Groq rate limit (429): waiting {soonest:.0f}s, then trying again")
                 time.sleep(soonest + 0.5)
                 continue
+            if is_chat and soonest > 75 and not groq_resting() and _has_backup():
+                # a long limit (usually the daily token limit): leave Groq out of clip picking until it resets,
+                # instead of trying it (and logging it) before every single request
+                _rest["until"] = now + soonest
+                if log:
+                    hrs = f"{soonest / 3600:.1f} hours" if soonest >= 3600 else f"{soonest / 60:.0f} minutes"
+                    log(f"Groq has used up its {_last_hit['text'] or 'limit'} for now, so the backup AI picks clips for the next {hrs}")
             raise RateLimited("All Groq keys are on their limit")
         for k in ready:
             files = None
