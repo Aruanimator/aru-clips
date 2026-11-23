@@ -32,15 +32,6 @@ aside{width:244px;flex:none;background:var(--side);border-right:1px solid var(--
 .hist small{color:var(--mute);font-size:11.5px}
 .sidefoot{border-top:1px solid var(--line);padding-top:12px;margin-top:8px}
 .status{display:flex;flex-direction:column;gap:6px;padding:0 10px 10px;font-size:12px;color:var(--mute)}
-.glim{padding:0 10px 10px;font-size:11.5px;color:var(--mute);display:flex;flex-direction:column;gap:7px}
-.glim:empty{display:none}
-.glim .gm{display:flex;justify-content:space-between;gap:6px;color:var(--text);font-size:11.5px}
-.glim .gm small{color:var(--mute);font-size:11px;white-space:nowrap}
-.glim .gl{display:flex;justify-content:space-between;gap:6px;margin-top:3px}
-.glim .gbar{height:4px;border-radius:2px;background:#ffffff14;overflow:hidden;margin-top:2px}
-.glim .gbar i{display:block;height:100%;background:var(--good)}
-.glim .gbar i.mid{background:var(--warn)}.glim .gbar i.low{background:#ff453a}
-.glim .grest{color:var(--warn)}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:8px;background:#5A6876;vertical-align:1px}
 .dot.ok{background:var(--good)}.dot.bad{background:#ff453a}.dot.mid{background:var(--warn)}
 .setbtn{width:100%;text-align:left;padding:8px 10px;border-radius:9px;color:var(--mute);font-weight:500}
@@ -702,7 +693,6 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
   <div class="sidefoot">
     <button class="freebtn" onclick="askFreeAll()">Free up space <span id="freeSz"></span></button>
     <div class="status" id="status"></div>
-    <div class="glim" id="glim"></div>
     <button class="setbtn" onclick="openSettings()">⚙︎ Settings</button>
     <button class="support" onclick="$('#bugPop').classList.remove('on');$('#supPop').classList.toggle('on')">Follow the creator</button>
     <button class="support" onclick="$('#supPop').classList.remove('on');$('#bugPop').classList.toggle('on')">Report a bug</button>
@@ -1595,22 +1585,6 @@ async function loadHistory(){
 function markHist(){document.querySelectorAll('.hist').forEach(h=>h.classList.toggle('on',h.dataset.id===current))}
 
 // ---------- settings + health
-const fmtK=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1).replace(/\.0$/,'')+'K':String(n);
-const glIn=s=>s<=0?'now':s<60?Math.ceil(s)+'s':s<3600?Math.ceil(s/60)+'m':Math.floor(s/3600)+'h '+Math.ceil(s%3600/60)+'m';
-async function loadGroqLimits(){
-  const d=await api('/api/groq-limits').catch(()=>null);const box=$('#glim');if(!d||!box)return;
-  if(!d.rows.length){box.innerHTML='';return}
-  const keys=new Set(d.rows.map(r=>r.key));
-  const bar=(left,lim,label,reset)=>{if(left==null||!lim)return'';const f=Math.max(0,Math.min(1,left/lim));
-    return `<div class="gl"><span>${label}</span><small>${fmtK(left)} / ${fmtK(lim)} left${reset&&left<lim?' · resets in '+glIn(reset-d.now):''}</small></div>
-    <div class="gbar"><i class="${f<.15?'low':f<.4?'mid':''}" style="width:${(f*100).toFixed(1)}%"></i></div>`};
-  box.innerHTML=(d.resting?`<div class="grest">Groq is on its limit. The backup AI picks clips for ${glIn(d.resting)}.</div>`:'')+
-    d.rows.slice(0,4).map(r=>{const name=r.model.split('/').pop();const lim=r.limited_until&&r.limited_until>d.now;
-      const H=lim&&r.hit,hitNote=H?`<div class="grest">${H.what==='tokens'?'Tokens':H.what==='requests'?'Requests':'Audio'} per ${H.per} used up · back in ${glIn(r.limited_until-d.now)}</div>`:'';
-      const hitBar=H&&H.per!=='minute'&&!(H.what==='requests'&&H.per==='day')?bar(Math.max(0,H.limit-H.used),H.limit,H.what==='tokens'?'Tokens today':'This '+H.per,r.limited_until):'';
-      return `<div><div class="gm"><span>Groq · ${esc(name)}</span><small>${keys.size>1?'key …'+esc(r.key):''}${lim?' · on limit':''}</small></div>
-      ${hitNote}${hitBar}${bar(r.req_left,r.req_limit,'Today',r.req_reset)}${/whisper/.test(name)?'':bar(r.tok_left,r.tok_limit,'This minute',r.tok_reset)}</div>`}).join('');
-}
 async function loadStatus(){
   const h=await api('/api/health').catch(()=>null);if(!h)return;
   const s=settingsCache;
@@ -2313,7 +2287,6 @@ function initStudio(){
   restoreLook(s.default_style||s.look);initStudio();
   if(s.default_style)$('#styleNote').textContent='Using your default style.';
   loadStatus();loadHistory();setInterval(loadStatus,15000);
-  loadGroqLimits();setInterval(loadGroqLimits,10000);
   loadBadges();setInterval(loadBadges,30000);
   checkUpdate();setInterval(checkUpdate,6*3600e3);checkDisk();setInterval(checkDisk,10*60e3);
 })();

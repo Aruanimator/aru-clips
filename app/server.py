@@ -223,11 +223,6 @@ def health():
             "encoder": render.pick_encoder()[1] if FFMPEG else "CPU"}
 
 
-@app.get("/api/groq-limits")
-def groq_limits():
-    return ai.groq_limits()
-
-
 @app.post("/api/backup/test")
 def backup_test(body: dict = Body(...)):
     """Sends one tiny request to the backup AI so Settings can show whether the key works."""
