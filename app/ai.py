@@ -61,16 +61,16 @@ _cool = {}  # key -> time it can be used again
 
 
 def _cooldown_for(r):
-    wait = float(r.headers.get("retry-after", "0") or 0)
-    if not wait:
-        m = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", r.text)
-        wait = (int(m.group(1) or 0) * 60 + float(m.group(2))) if m else 60
-    return wait
+    m = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", r.text)
+    if m and any(m.groups()):
+        return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3) or 0)
+    return float(r.headers.get("retry-after", "0") or 0) or 60
 
 
 REST_AFTER = 2     # Groq limits in a row (with every key on its limit) before the app stops waiting on Groq
 REST_SECS = 120    # how long the backup AI picks clips before Groq gets another try
 _rest = {"n": 0, "until": 0.0}
+_last_hit = {"text": ""}
 _limits = {}       # (key ending, model) -> what Groq's last reply said about its limits
 LIMITS_FILE = CACHE / "groq_limits.json"
 
@@ -101,6 +101,14 @@ def _note_limits(r, k, body):
            "tok_reset": _reset_at(h.get("x-ratelimit-reset-tokens"))}
     if r.status_code == 429:
         row["limited_until"] = time.time() + _cooldown_for(r)
+        # Groq's reply says which limit it was. The daily token limit isn't in the headers, so this is the only place it shows.
+        m = re.search(r"on (tokens|requests|audio seconds) per (minute|hour|day)[^:]*:\s*Limit (\d+), Used (\d+)", r.text)
+        if m:
+            row["hit"] = {"what": m.group(1), "per": m.group(2), "limit": int(m.group(3)), "used": int(m.group(4))}
+            _last_hit["text"] = f"{m.group(1)} per {m.group(2)}"
+    prev = _limits.get((row["key"], model)) or {}
+    if "hit" not in row and prev.get("hit") and (prev.get("limited_until") or 0) > time.time():
+        row["hit"], row["limited_until"] = prev["hit"], prev["limited_until"]
     _limits[(row["key"], model)] = row
     try:
         LIMITS_FILE.write_text(json.dumps(list(_limits.values())))
@@ -592,7 +600,8 @@ def chat_json(messages, log=None):
                     avoid = (model,)
                 continue
             except RateLimited:
-                if log: log(f"{name} rate limit reached (429), trying the next AI")
+                why = f" ({_last_hit['text']} used up)" if name == "Groq" and _last_hit["text"] else ""
+                if log: log(f"{name} rate limit reached (429){why}, trying the next AI")
                 break
             except EngineError as e:
                 if log: log(f"{name} failed with status {e.status}: {' '.join(e.body.split())[:200]}")

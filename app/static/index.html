@@ -1606,8 +1606,10 @@ async function loadGroqLimits(){
     <div class="gbar"><i class="${f<.15?'low':f<.4?'mid':''}" style="width:${(f*100).toFixed(1)}%"></i></div>`};
   box.innerHTML=(d.resting?`<div class="grest">Groq is on its limit. The backup AI picks clips for ${glIn(d.resting)}.</div>`:'')+
     d.rows.slice(0,4).map(r=>{const name=r.model.split('/').pop();const lim=r.limited_until&&r.limited_until>d.now;
+      const H=lim&&r.hit,hitNote=H?`<div class="grest">${H.what==='tokens'?'Tokens':H.what==='requests'?'Requests':'Audio'} per ${H.per} used up · back in ${glIn(r.limited_until-d.now)}</div>`:'';
+      const hitBar=H&&H.per!=='minute'&&!(H.what==='requests'&&H.per==='day')?bar(Math.max(0,H.limit-H.used),H.limit,H.what==='tokens'?'Tokens today':'This '+H.per,r.limited_until):'';
       return `<div><div class="gm"><span>Groq · ${esc(name)}</span><small>${keys.size>1?'key …'+esc(r.key):''}${lim?' · on limit':''}</small></div>
-      ${bar(r.req_left,r.req_limit,'Today',r.req_reset)}${/whisper/.test(name)?'':bar(r.tok_left,r.tok_limit,'This minute',r.tok_reset)}</div>`}).join('');
+      ${hitNote}${hitBar}${bar(r.req_left,r.req_limit,'Today',r.req_reset)}${/whisper/.test(name)?'':bar(r.tok_left,r.tok_limit,'This minute',r.tok_reset)}</div>`}).join('');
 }
 async function loadStatus(){
   const h=await api('/api/health').catch(()=>null);if(!h)return;
