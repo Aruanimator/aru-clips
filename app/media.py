@@ -71,11 +71,17 @@ def ydl_run(fn, extra=None):
 def friendly_error(e):
     t = str(e)
     low = t.lower()
-    if any(k in low for k in ("sign in", "login", "log in", "cookies", "private", "age", "confirm your age", "authentication")):
+    print("link error:", re.sub(r"\x1b\[[0-9;]*m", "", t)[:600], flush=True)  # the full reason, for app.log
+    if "cookie" in low and any(k in low for k in ("could not copy", "decrypt", "dpapi", "permission", "locked")):
+        return ("The app couldn't read your browser sign-in (Chrome, Edge and Brave on Windows often block this, "
+                "and it can't be read while that browser is open). Public videos work without it: in Settings set "
+                "Browser login to None. For private videos, pick Firefox.")
+    if "not a bot" in low:
+        return ("YouTube asked to confirm you're not a bot. In Settings, under Browser login, pick a browser where you're "
+                "signed in to YouTube (Firefox works best on Windows), then try again.")
+    # whole words only: "age" alone used to match "page" and "message", so plain network errors looked like login problems
+    if re.search(r"\b(sign in|signed in|login|log in|private video|age[- ]restricted|confirm your age|members[- ]only|authentication)\b", low):
         return LOGIN_HINT
-    if "cookie" in low and any(k in low for k in ("could not copy", "decrypt", "dpapi")):
-        return ("The app couldn't read your browser sign-in (Chrome and Edge on Windows often block this). "
-                "Public videos work without it: in Settings set Browser login to None. For private videos, pick Firefox.")
     if "requested format is not available" in low:
         return ("The site didn't offer a recordable stream. Close the app, start it again (that updates the downloader) "
                 "and retry. If it keeps happening, the stream may be members-only or not live yet.")
