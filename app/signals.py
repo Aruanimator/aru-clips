@@ -213,7 +213,8 @@ class YouTubeLiveChat(threading.Thread):
         s = load_settings()
         cmd = [config.PYEXE, "-m", "yt_dlp", "-q", "--no-warnings", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
                "-o", str(self.folder / "livechat"), self.url]
-        if s.get("cookies_browser"):
+        import media
+        if s.get("cookies_browser") and not media._no_cookies["on"]:  # the sign-in couldn't be read: skip it, or chat never loads
             cmd[4:4] = ["--cookies-from-browser", s["cookies_browser"]]
         self.proc = popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started, pos = time.time(), {}
