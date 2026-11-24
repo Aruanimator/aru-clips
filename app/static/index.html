@@ -886,6 +886,7 @@ a.topbanner{display:inline-block;width:auto;padding:7px 12px;font-size:13px;text
         <div class="block"><div class="sech">Font gallery <span style="font-weight:400">Click a font to use it for captions and titles</span></div>
           <div class="gal" id="fontGal"></div></div>
         <div class="block"><div class="sech">Bangla captions <span style="font-weight:400">Bangla fonts switch on by themselves when the speech is Bangla</span></div>
+          <div class="field" style="max-width:340px;margin-bottom:10px"><label>Bangla font</label><select id="bnFont"></select></div>
           <label class="toggle"><input type="checkbox" id="bnglish"><span></span>Write Bangla in English letters (Banglish)</label>
           <p class="hint">Free and offline. If you have a Groq key or Ollama, it uses AI for more natural spelling.</p></div>
         <div class="block"><div class="sech">Get more free fonts <span style="font-weight:400">One click, saved on your PC</span></div>
@@ -1660,7 +1661,22 @@ async function loadFonts(){
     if(![...document.fonts].some(x=>x.family===f.family)){const ff=new FontFace(f.family,`url("${fontUrl(f)}")`);await ff.load();document.fonts.add(ff)}}catch(e){}}));
   renderFonts();renderLook();
 }
+function renderBnFonts(){
+  const sel=$('#bnFont');if(!sel)return;
+  const have=fontList.filter(f=>f.bangla),cur=look.bn_font||'Hind Siliguri Bold';
+  const more=fontCatalog.filter(c=>c.tag==='Bangla'&&!c.installed);
+  sel.innerHTML=have.map(f=>`<option value="f:${encodeURIComponent(f.family)}" ${f.family===cur?'selected':''} style="font-family:'${f.family}'">${esc(f.family)}</option>`).join('')+
+    (more.length?`<optgroup label="Download (free)">${more.map(c=>`<option value="c:${c.id}">${esc(c.name)} ↓</option>`).join('')}</optgroup>`:'');
+}
+async function pickBnFont(v){
+  if(v.startsWith('f:')){look.bn_font=decodeURIComponent(v.slice(2));renderLook();return}
+  const id=v.slice(2);toast('Downloading the font…');
+  try{const before=new Set(fontList.map(f=>f.file));await api('/api/fonts/get/'+id,{method:'POST',body:'{}'});await loadFonts();
+    const f=fontList.find(x=>x.bangla&&!before.has(x.file));if(f)look.bn_font=f.family;toast('Font installed')}catch(e){toast(e.message)}
+  renderBnFonts();renderLook()
+}
 function renderFonts(){
+  renderBnFonts();
   const g=$('#fontGal');
   g.innerHTML=`<div class="tile ${look.font?'':'on'}" data-f=""><div class="aa" style="font-family:'Montserrat Black',system-ui;font-weight:900">Aa</div><div><div class="nm">Style default</div><div class="tg">Follows caption style</div></div></div>`+
     fontList.map(f=>`<div class="tile ${look.font===f.family?'on':''}" data-f="${encodeURIComponent(f.family)}"><div class="aa" style="font-family:'${f.family}'">Aa</div>
@@ -1814,12 +1830,13 @@ function renderLook(){
   const st=STY[styleKey()]||STY.bold,[W,H]=FMT[format],stage=$('#stage');
   stage.style.aspectRatio=W+'/'+H;stage.style.maxHeight=format==='16:9'?'none':'440px';stage.style.margin=format==='9:16'||format==='3:4'?'0 auto':'0';
   stage.style.width=(format==='9:16'?'62%':format==='3:4'?'74%':'100%');
-  const fam=`"${effFont()}",system-ui,sans-serif`,scale=Math.min(W,H)/1080,fsz=(st.size*scale*look.font_scale)/W*100*assEm(effFont());
+  const bnOn=$('#lang')?.value==='bn'&&!look.banglish,capFont=bnOn?(look.bn_font||'Hind Siliguri Bold'):effFont();
+  const fam=`"${capFont}",system-ui,sans-serif`,scale=Math.min(W,H)/1080,fsz=(st.size*scale*look.font_scale)/W*100*assEm(capFont);
   stage.className='stage'+(stage.classList.contains('demo')?' demo':'')+(stage.classList.contains('fxplay')?' fxplay':'')+look.effects.map(e=>' e-'+e).join('');
   const cap=$('#pvCap'),hi=effColor('hi'),tx=effColor('text'),ol=effColor('outline');
   const none=styleKey()==='none';cap.style.display=none?'none':'';
   const per=look.words_per_line||st.words,nl=look.lines||1,fmtK=look.cap_format||'outline',G=look.grad||{},hlOn=look.highlight!==false;
-  const pool=st.upper?['THIS','IS','HOW','YOUR','CAPTIONS','LOOK','ON','THE','SCREEN','RIGHT','NOW','OK']:['This','is','how','your','captions','look','on','the','screen','right','now','ok'];
+  const pool=bnOn?['এভাবেই','তোমার','ক্যাপশন','স্ক্রিনে','দেখাবে','একদম','এখনই','ঠিক','আছে','চলো','শুরু','করি']:st.upper?['THIS','IS','HOW','YOUR','CAPTIONS','LOOK','ON','THE','SCREEN','RIGHT','NOW','OK']:['This','is','how','your','captions','look','on','the','screen','right','now','ok'];
   const words=pool.slice(0,Math.max(2,per*nl));
   const hw=demoT?demoIdx%words.length:Math.min(1,words.length-1);
   const boxC=look.box_color||(fmtK==='word_box'?hi:'#141D25'),gradCss=G.on&&fmtK!=='word_box'?`background:linear-gradient(${G.a||'#ffd6f5'},${G.b||'#d91aa8'});-webkit-background-clip:text;background-clip:text;color:transparent;`:'';
@@ -2149,8 +2166,9 @@ function sdDraw(){
 }
 function sdText(){
   const st=STY[sd.style]||STY.bold,[W,H]=FMT[sd.format],v=$('#sdVid'),t=v.currentTime,cap=$('#sdCap'),ttl=$('#sdTtl');
-  const scale=Math.min(W,H)/1080,fsz=(st.size*scale*(sd.look.font_scale||1))/W*100*assEm(sd.look.font||st.font);
-  const fam=`"${sd.look.font||st.font}",system-ui,sans-serif`,hi=sd.look.hi_color||st.hi,tx=sd.look.text_color||st.text,ol=sd.look.outline_color||'#000000';
+  const scale=Math.min(W,H)/1080,fsz=(st.size*scale*(sd.look.font_scale||1))/W*100*assEm(bnClip?(sd.look.bn_font||'Hind Siliguri Bold'):(sd.look.font||st.font));
+  const bnClip=!sd.look.banglish&&(sd.words||[]).some(w=>/[\u0980-\u09FF]/.test(w.w||''));
+  const fam=`"${bnClip?(sd.look.bn_font||'Hind Siliguri Bold'):(sd.look.font||st.font)}",system-ui,sans-serif`,hi=sd.look.hi_color||st.hi,tx=sd.look.text_color||st.text,ol=sd.look.outline_color||'#000000';
   const tp=sd.look.text_pos||{};
   if(sd.style==='none'){cap.style.display='none'}else{
     let g=sd.groups.find(g=>t>=g[0].s-0.05&&t<=g[g.length-1].e+0.25)||(v.paused?sd.groups[0]:null);
@@ -2178,10 +2196,11 @@ function sdText(){
       if(cap.style.whiteSpace==='nowrap'&&box&&cap.scrollWidth>box)cap.style.fontSize=(fsz*Math.max(.55,box/cap.scrollWidth))+'cqw'}}
   ttl.style.display=$('#sdTitleOn').checked&&$('#sdTitle').value.trim()?'':'none';
   const tsc=sd.look.title_scale||1,outl=sd.look.title_fmt==='outline';
-  ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl,sd.look.font||'Montserrat Black').map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
-  ttl.style.fontFamily=fam;ttl.style.setProperty('--tbg',outl?'transparent':(sd.look.title_bg||'#fff'));ttl.style.color=outl?(sd.look.title_fg||'#fff'):(sd.look.title_fg||'#101010');
+  const tFam=/[\u0980-\u09FF]/.test($('#sdTitle').value)?(sd.look.bn_font||'Hind Siliguri Bold'):(sd.look.font||'Montserrat Black');
+  ttl.innerHTML=hookRows($('#sdTitle').value,W,scale,tsc,outl,tFam).map(r=>'<span>'+esc(r)+'</span>').join('<br>');ttl.style.whiteSpace='nowrap';
+  ttl.style.fontFamily=`"${tFam}",system-ui,sans-serif`;ttl.style.setProperty('--tbg',outl?'transparent':(sd.look.title_bg||'#fff'));ttl.style.color=outl?(sd.look.title_fg||'#fff'):(sd.look.title_fg||'#101010');
   ttl.querySelectorAll('span').forEach(e=>{e.style.webkitTextStroke=outl?'.12em '+(sd.look.title_bg||'#000'):'';e.style.paintOrder='stroke fill'});
-  ttl.style.fontSize=(70*scale*tsc/W*100*assEm(sd.look.font||'Montserrat Black'))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:50)+'%';ttl.style.transform='translate(-50%,-50%)';
+  ttl.style.fontSize=(70*scale*tsc/W*100*assEm(tFam))+'cqw';ttl.style.left=((tp.title?.x)??.5)*100+'%';ttl.style.top=(tp.title?tp.title.y*100:50)+'%';ttl.style.transform='translate(-50%,-50%)';
 }
 // the hook's lines, split the same way the renderer splits them
 let _hookCtx=null;
@@ -2264,6 +2283,8 @@ function sdSaveDefault(){if(!sd)return;const st=currentStyle();st.look={...st.lo
 function initStudio(){
   initHoverPreviews();
   $('#bnglish').onchange=e=>{look.banglish=e.target.checked;renderLook()};
+  $('#bnFont').onchange=e=>pickBnFont(e.target.value);
+  $('#lang').addEventListener('change',renderLook);
   seg($('#capFmt'),v=>{look.cap_format=v;renderLook()});
   $('#gradPresets').innerHTML=GRADS.map(g=>`<button class="chip" onclick="look.grad={on:true,a:'${g[1]}',b:'${g[2]}'};syncCapCtl();renderLook()"><i style="display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:-2px;margin-right:6px;background:linear-gradient(${g[1]},${g[2]})"></i>${g[0]}</button>`).join('');
   syncCapCtl();

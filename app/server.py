@@ -37,6 +37,12 @@ CATALOG = [  # free Google Fonts, downloaded on demand
     ("blackops", "Black Ops One", "Gaming", "ofl/blackopsone/BlackOpsOne-Regular.ttf"),
     ("hindsiliguri", "Hind Siliguri Bold", "Bangla", "ofl/hindsiliguri/HindSiliguri-Bold.ttf"),
     ("tirobangla", "Tiro Bangla", "Bangla", "ofl/tirobangla/TiroBangla-Regular.ttf"),
+    ("notobnblack", "Noto Sans Bengali Black", "Bangla", "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Black.ttf"),
+    ("notobnbold", "Noto Sans Bengali Bold", "Bangla", "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Bold.ttf"),
+    ("notoserifbn", "Noto Serif Bengali Bold", "Bangla", "https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/fonts/NotoSerifBengali/hinted/ttf/NotoSerifBengali-Bold.ttf"),
+    ("mina", "Mina Bold", "Bangla", "ofl/mina/Mina-Bold.ttf"),
+    ("atma", "Atma Bold", "Bangla", "ofl/atma/Atma-Bold.ttf"),
+    ("galada", "Galada", "Bangla", "ofl/galada/Galada-Regular.ttf"),
 ]
 GF = "https://raw.githubusercontent.com/google/fonts/main/"
 SFX_META = {"pop": ("Pop", "UI"), "click": ("Click", "UI"), "mouse": ("Mouse click", "UI"), "tick": ("Number tick", "UI"),
@@ -946,6 +952,15 @@ def font_family(p):
         return p.stem
 
 
+def has_bangla(p):
+    """Does the font have Bangla letters (ক)?"""
+    try:
+        from fontTools.ttLib import TTFont
+        return 0x0995 in (TTFont(str(p), lazy=True).getBestCmap() or {})
+    except Exception:
+        return False
+
+
 def font_em(p):
     """How big one em is for a given ASS font size. libass sizes text by the font's Windows line height, the browser by em."""
     try:
@@ -964,7 +979,7 @@ def fonts():
     for d, src in ((ASSETS / "fonts", "bundled"), (USER_FONTS, "mine")):
         for p in sorted(d.glob("*")):
             if p.suffix.lower() in (".ttf", ".otf"):
-                out.append({"file": p.name, "family": font_family(p), "source": src, "em": font_em(p)})
+                out.append({"file": p.name, "family": font_family(p), "source": src, "em": font_em(p), "bangla": has_bangla(p)})
     have = {pathlib.Path(x["file"]).name.lower() for x in out}
     cat = [{"id": i, "name": n, "tag": t, "installed": pathlib.Path(path).name.lower() in have} for i, n, t, path in CATALOG]
     return {"fonts": out, "catalog": cat}
@@ -986,7 +1001,7 @@ def get_font(fid: str):
     if not item:
         raise HTTPException(404, "Unknown font")
     try:
-        r = requests.get(GF + item[3], timeout=60)
+        r = requests.get(item[3] if item[3].startswith("http") else GF + item[3], timeout=60)
         r.raise_for_status()
     except Exception:
         raise HTTPException(502, "Couldn't download the font. Check your internet connection.")

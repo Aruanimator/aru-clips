@@ -1051,8 +1051,9 @@ def build_ass(path, W, H, dur, groups, style, look, cap_pos, title, title_on, la
     st = STY.get(style)
     sc = min(W, H) / 1080
     lk = look or {}
-    font = (BANGLA_FONT if lang == "bn" and not lk.get("banglish") else (lk.get("font") or (st or STY["bold"])["font"]))
-    tfont = BANGLA_FONT if re.search(r"[ঀ-৿]", title or "") else (lk.get("font") or "Montserrat Black")
+    bnf = lk.get("bn_font") or BANGLA_FONT  # the Bangla font picked in the Fonts tab
+    font = (bnf if lang == "bn" and not lk.get("banglish") else (lk.get("font") or (st or STY["bold"])["font"]))
+    tfont = bnf if re.search(r"[ঀ-৿]", title or "") else (lk.get("font") or "Montserrat Black")
     s = st or STY["bold"]
     txt, hi, ol = lk.get("text_color") or s["text"], lk.get("hi_color") or s["hi"], lk.get("outline_color") or "#000000"
     fs = s["size"] * sc * float(lk.get("font_scale") or 1)
