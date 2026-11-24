@@ -68,14 +68,29 @@ def ydl_run(fn, extra=None):
             return fn(y)
 
 
+COOKIE_HINT = ("The app couldn't read your browser sign-in. Chrome, Edge and Brave on Windows lock it so other apps can't "
+               "read it. Sign in to YouTube in Firefox, then pick Firefox under Settings → Browser login.")
+BOT_HINT = ("YouTube asked to confirm you're not a bot, and the app couldn't use your browser sign-in to answer. "
+            "Sign in to YouTube in Firefox and pick Firefox under Settings → Browser login, or restart the app "
+            "(that updates the downloader) and try again.")
+
+
+def _has(low, *words):
+    """Whole words/phrases only, so "age" doesn't match "page" or "message"."""
+    return any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words)
+
+
 def friendly_error(e):
     t = str(e)
     low = t.lower()
-    if any(k in low for k in ("sign in", "login", "log in", "cookies", "private", "age", "confirm your age", "authentication")):
-        return LOGIN_HINT
-    if "cookie" in low and any(k in low for k in ("could not copy", "decrypt", "dpapi")):
-        return ("The app couldn't read your browser sign-in (Chrome and Edge on Windows often block this). "
-                "Public videos work without it: in Settings set Browser login to None. For private videos, pick Firefox.")
+    if "cookie" in low and any(k in low for k in ("could not copy", "decrypt", "dpapi", "app-bound", "appbound")):
+        return COOKIE_HINT
+    if "not a bot" in low or _has(low, "bot check"):
+        return BOT_HINT
+    if _has(low, "sign in", "signin", "login", "log in", "private video", "members-only", "join this channel",
+            "age-restricted", "age restricted", "confirm your age", "inappropriate for some users", "authentication"):
+        # the browser sign-in couldn't be read, so asking to pick a browser again wouldn't help
+        return COOKIE_HINT if _no_cookies["on"] else LOGIN_HINT
     if "requested format is not available" in low:
         return ("The site didn't offer a recordable stream. Close the app, start it again (that updates the downloader) "
                 "and retry. If it keeps happening, the stream may be members-only or not live yet.")
