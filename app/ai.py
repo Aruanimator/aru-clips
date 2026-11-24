@@ -34,7 +34,16 @@ class BadReply(RuntimeError):
 
 
 LANG_NAMES = {"english": "en", "bengali": "bn", "bangla": "bn", "hindi": "hi", "urdu": "ur", "arabic": "ar",
-              "spanish": "es", "french": "fr", "german": "de", "portuguese": "pt", "indonesian": "id"}
+              "spanish": "es", "french": "fr", "german": "de", "portuguese": "pt", "indonesian": "id",
+              "gujarati": "gu", "assamese": "as", "odia": "or", "oriya": "or", "punjabi": "pa", "marathi": "mr",
+              "nepali": "ne", "sanskrit": "sa", "sinhala": "si"}
+# Whisper often hears Bangla as one of these when it guesses the language, and then writes the captions in the
+# wrong script (Gujarati letters for Bangla speech). The app doesn't offer these, so a guess of one means Bangla.
+BN_LOOKALIKE = {"gu", "as", "or", "pa", "mr", "ne", "sa", "si"}
+
+
+def _code(det):
+    return LANG_NAMES.get((det or "").lower(), (det or "")[:2].lower() or "en")
 
 
 def _settings():
@@ -614,15 +623,20 @@ def _audio_chunks(wav, total, chunk_s=600):
 def _groq_part(p, lang, s, log):
     if not p.exists() or p.stat().st_size < 1000:
         return {}
-    cache = p.with_suffix(".json")
+    auto = not lang or lang == "auto"
+    cache = p.with_suffix(".json" if auto else f".{lang}.json")
     if cache.exists():  # already transcribed on an earlier try: don't pay for it twice
-        return json.loads(cache.read_text("utf-8"))
-    data = {"model": groq_model("whisper", s), "response_format": "verbose_json",
-            "timestamp_granularities[]": ["word", "segment"]}
-    if lang and lang != "auto":
-        data["language"] = lang
-    j = groq_post("/audio/transcriptions", data=data, file_path=p, timeout=300, log=log)
-    cache.write_text(json.dumps(j), "utf-8")
+        j = json.loads(cache.read_text("utf-8"))
+    else:
+        data = {"model": groq_model("whisper", s), "response_format": "verbose_json",
+                "timestamp_granularities[]": ["word", "segment"]}
+        if not auto:
+            data["language"] = lang
+        j = groq_post("/audio/transcriptions", data=data, file_path=p, timeout=300, log=log)
+        cache.write_text(json.dumps(j), "utf-8")
+    if auto and _code(j.get("language")) in BN_LOOKALIKE:
+        log(f"Whisper guessed {j.get('language')}, which is almost always Bangla misheard, so this part is written in Bangla")
+        return _groq_part(p, "bn", s, log)
     return j
 
 
@@ -647,8 +661,7 @@ def _groq_transcribe(wav, total, lang, s, log, progress):
             words.append({"w": w["word"].strip(), "s": round(w["start"] + off, 3), "e": round(w["end"] + off, 3)})
         for sg in j.get("segments") or []:
             segs.append({"s": round(sg["start"] + off, 2), "e": round(sg["end"] + off, 2), "text": sg["text"].strip()})
-    code = LANG_NAMES.get((det or "").lower(), (det or "")[:2].lower() or "en")
-    return words, segs, code
+    return words, segs, _code(det)
 
 
 _fw_model = {}
@@ -695,13 +708,20 @@ def _local_transcribe(wav, total, lang, s, log, progress):
                 progress(min(1, sg.end / total))
         return words, segs, info.language or "en"
 
-    if _has_cuda() and not _cuda_broken:
-        try:
-            return run_on("cuda")
-        except Exception as e:
-            globals()["_cuda_broken"] = True
-            log(f"GPU Whisper didn't work ({str(e)[:80]}), using the CPU")
-    return run_on("cpu")
+    def run_any():
+        if _has_cuda() and not _cuda_broken:
+            try:
+                return run_on("cuda")
+            except Exception as e:
+                globals()["_cuda_broken"] = True
+                log(f"GPU Whisper didn't work ({str(e)[:80]}), using the CPU")
+        return run_on("cpu")
+    out = run_any()
+    if lang in (None, "", "auto") and _code(out[2]) in BN_LOOKALIKE:
+        log(f"Whisper guessed {out[2]}, which is almost always Bangla misheard, so it's written again in Bangla")
+        lang = "bn"
+        out = run_any()
+    return out[0], out[1], _code(out[2])
 
 
 def transcribe(wav, total, lang="auto", log=print, progress=lambda f: None):
